@@ -1,6 +1,6 @@
 /* 바다가자 서비스워커 — 앱 셸 오프라인 캐시
    앱을 수정한 뒤에는 VERSION 숫자를 올려야 기기에 새 버전이 반영됩니다. */
-const VERSION = 'badagaja-v2';
+const VERSION = 'badagaja-v3';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
