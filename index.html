@@ -230,6 +230,35 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
 .tripmemo{font-size:12.5px;color:var(--dim);margin-top:4px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
+/* 이미지 */
+.imgrid{display:flex;flex-wrap:wrap;gap:8px}
+.imgcell{width:84px;height:84px;border-radius:11px;position:relative;flex:none;
+  border:1px solid var(--line);background:var(--bg) center/cover no-repeat}
+.imgcell .rm{position:absolute;top:4px;right:4px;width:23px;height:23px;border-radius:50%;
+  background:rgba(0,0,0,.55);display:grid;place-items:center}
+.imgcell .rm svg{width:13px;height:13px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round}
+.imgadd{width:84px;height:84px;border-radius:11px;flex:none;border:1px dashed var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  color:var(--dim);background:var(--bg)}
+.imgadd svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.imgadd .lbl{font-size:11px;line-height:1.2;text-align:center;padding:0 4px}
+.imgstrip{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+.shotwide{width:100%;aspect-ratio:4/3;border-radius:11px;border:1px solid var(--line);
+  background:var(--bg) center/cover no-repeat}
+.imgstrip .shot{width:124px;height:124px;flex:none;border-radius:11px;border:1px solid var(--line);
+  background:var(--bg) center/cover no-repeat}
+.thumb.hasimg,.card .ph.hasimg{background-size:cover;background-position:center;font-size:0}
+
+/* 전체 화면 뷰어 */
+.viewer{position:fixed;inset:0;background:#000;z-index:80;display:flex;flex-direction:column}
+.viewer .vtop{display:flex;align-items:center;gap:10px;color:#fff;
+  padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 8px}
+.viewer .vcount{font-size:13px;opacity:.8;font-variant-numeric:tabular-nums}
+.viewer .vimg{flex:1;display:grid;place-items:center;overflow:hidden;padding:4px}
+.viewer img{max-width:100%;max-height:100%;object-fit:contain}
+.viewer .vnav{display:flex;justify-content:space-between;padding:10px 14px calc(14px + var(--safe-b))}
+.viewer .iconbtn:active{background:rgba(255,255,255,.15)}
+
 /* sheet */
 .backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;
   display:flex;align-items:flex-end;animation:fade .15s}
@@ -265,7 +294,7 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
    ============================================================ */
 
 /* ---------- 상수 ---------- */
-const APP_VERSION = 'v9';   // sw.js 의 VERSION 과 함께 올린다
+const APP_VERSION = 'v10';   // sw.js 의 VERSION 과 함께 올린다
 
 const SIDO = ['서울','부산','대구','인천','광주','대전','울산','세종',
               '경기','강원','충북','충남','전북','전남','경북','경남','제주'];
@@ -370,6 +399,89 @@ const dbPut = (s,v) => req(tx(s,'readwrite').put(v));
 const dbGet = (s,k) => req(tx(s).get(k));
 
 /* ============================================================
+   이미지 — 압축 · 저장 · 표시
+   ============================================================ */
+const IMG_MAX = 1600, IMG_Q = 0.8;      // 원본 보관용
+const THUMB_MAX = 400, THUMB_Q = 0.7;   // 목록·그리드용
+
+/** 한 변을 max 이하로 줄여 JPEG 로 다시 굽는다 */
+async function shrink(bmp, max, quality){
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
+  const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', quality));
+  return { blob, w, h };
+}
+
+/** 파일 하나를 압축해 images 스토어에 넣고 id 를 돌려준다 */
+async function addImage(file, ownerType, ownerId, kind){
+  // EXIF 회전 정보를 반영해서 읽는다 (안 하면 세로 사진이 눕는다)
+  const bmp = await createImageBitmap(file, { imageOrientation:'from-image' });
+  const full  = await shrink(bmp, IMG_MAX, IMG_Q);
+  const thumb = await shrink(bmp, THUMB_MAX, THUMB_Q);
+  bmp.close?.();
+  const rec = {
+    id: uid(), ownerType, ownerId, kind,
+    blob: full.blob, thumb: thumb.blob,
+    w: full.w, h: full.h, bytes: full.blob.size,
+    createdAt: now(), updatedAt: now(), deleted:false, synced:false
+  };
+  await dbPut('images', rec);
+  return rec.id;
+}
+async function delImage(id){
+  const r = await dbGet('images', id);
+  if(r){ r.deleted = true; r.blob = null; r.thumb = null; r.updatedAt = now(); r.synced = false; await dbPut('images', r); }
+  for(const cache of [thumbUrls, fullUrls]){
+    const u = cache.get(id);
+    if(u){ URL.revokeObjectURL(u); cache.delete(id); }
+  }
+}
+
+/* 만들어 둔 objectURL 은 재사용한다 (매번 만들면 메모리가 샌다) */
+const thumbUrls = new Map(), fullUrls = new Map();
+async function imgUrl(id, big){
+  const cache = big ? fullUrls : thumbUrls;
+  if(cache.has(id)) return cache.get(id);
+  const r = await dbGet('images', id);
+  const blob = r && !r.deleted ? (big ? r.blob : (r.thumb || r.blob)) : null;
+  if(!blob) return '';
+  const url = URL.createObjectURL(blob);
+  cache.set(id, url);
+  return url;
+}
+/** 화면에 그려진 자리표시자들을 뒤늦게 실제 이미지로 채운다 */
+async function paintImages(root){
+  for(const el of (root || document).querySelectorAll('[data-imgsrc]')){
+    const id = el.dataset.imgsrc;
+    el.removeAttribute('data-imgsrc');
+    const url = await imgUrl(id, false);
+    if(!url) continue;
+    if(el.tagName === 'IMG') el.src = url;
+    else { el.style.backgroundImage = `url("${url}")`; el.classList.add('hasimg'); }
+  }
+}
+
+/* 포인트/출조 기록이 들고 있는 이미지 목록 (옛 필드도 받아준다) */
+const mapImagesOf = p => (p.mapImages || []);
+const photosOf    = o => (o.photos || o.images || []);
+const coverImageOf = p => mapImagesOf(p)[0] || photosOf(p)[0] || null;
+
+/** 주인이 사라진 이미지 정리 — 저장하지 않고 나간 편집 화면이 남긴 것들 */
+async function sweepOrphanImages(){
+  const live = new Set();
+  for(const p of state.points){ mapImagesOf(p).forEach(i=>live.add(i)); photosOf(p).forEach(i=>live.add(i)); }
+  for(const t of state.trips){ photosOf(t).forEach(i=>live.add(i)); }
+  for(const r of await dbAll('images')){
+    if(r.deleted || live.has(r.id)) continue;
+    if(now() - r.createdAt < 10*60*1000) continue;   // 편집 중일 수 있으니 10분은 봐준다
+    await delImage(r.id);
+  }
+}
+
+/* ============================================================
    상태
    ============================================================ */
 const state = {
@@ -405,8 +517,12 @@ async function putTrip(t){
 }
 async function delPoint(id){
   const p = await dbGet('points', id);
-  if(p){ p.deleted=true; p.updatedAt=now(); p.synced=false; await dbPut('points',p); }
+  if(p){
+    for(const i of [...mapImagesOf(p), ...photosOf(p)]) await delImage(i);
+    p.deleted=true; p.updatedAt=now(); p.synced=false; await dbPut('points',p);
+  }
   for(const t of state.trips.filter(t=>t.pointId===id)){
+    for(const i of photosOf(t)) await delImage(i);
     t.deleted=true; t.updatedAt=now(); t.synced=false; await dbPut('trips',t);
   }
   state.points = state.points.filter(x=>x.id!==id);
@@ -414,7 +530,10 @@ async function delPoint(id){
 }
 async function delTrip(id){
   const t = await dbGet('trips', id);
-  if(t){ t.deleted=true; t.updatedAt=now(); t.synced=false; await dbPut('trips',t); }
+  if(t){
+    for(const i of photosOf(t)) await delImage(i);
+    t.deleted=true; t.updatedAt=now(); t.synced=false; await dbPut('trips',t);
+  }
   state.trips = state.trips.filter(x=>x.id!==id);
 }
 
@@ -768,6 +887,107 @@ function seasonEditor(host, model, getType){
   return { refresh: render };
 }
 
+/**
+ * 이미지 첨부 편집기
+ * @param {HTMLElement} host
+ * @param {Array<string>} model  이미지 id 배열 (직접 변형됨)
+ * @param {string} ownerType 'point' | 'trip'
+ * @param {string} ownerId
+ * @param {string} kind 'map' | 'photo'
+ * @param {string} addLabel
+ */
+function imagePicker(host, model, ownerType, ownerId, kind, addLabel){
+  const inputId = 'f_' + uid();
+
+  function render(){
+    host.innerHTML = `<div class="imgrid">
+      ${model.map(id=>`
+        <div class="imgcell" data-imgsrc="${id}">
+          <button type="button" class="rm" data-rmimg="${id}" aria-label="삭제">${ICON.x}</button>
+        </div>`).join('')}
+      <button type="button" class="imgadd" data-pick>
+        <span>${ICON.plus}</span><span class="lbl">${esc(addLabel)}</span>
+      </button>
+      <input type="file" id="${inputId}" accept="image/*" multiple hidden>
+    </div>`;
+    paintImages(host);
+  }
+
+  host.addEventListener('click', e => {
+    if(e.target.closest('[data-pick]')) return host.querySelector('#'+inputId).click();
+    const rm = e.target.closest('[data-rmimg]');
+    if(rm){
+      const id = rm.dataset.rmimg;
+      model.splice(model.indexOf(id), 1);
+      delImage(id);
+      return render();
+    }
+  });
+  host.addEventListener('change', async e => {
+    if(e.target.type !== 'file') return;
+    const files = [...e.target.files];
+    e.target.value = '';
+    if(!files.length) return;
+    toast(files.length > 1 ? `사진 ${files.length}장 넣는 중…` : '사진 넣는 중…');
+    for(const f of files){
+      try { model.push(await addImage(f, ownerType, ownerId, kind)); }
+      catch(err){ console.error(err); toast('사진을 읽지 못했습니다'); }
+    }
+    render();
+  });
+  render();
+  return { refresh: render };
+}
+
+/** 전체 화면 이미지 뷰어 */
+async function openViewer(ids, startIdx){
+  if(!ids.length) return;
+  let i = Math.max(0, Math.min(startIdx|0, ids.length-1));
+  const el = document.createElement('div');
+  el.className = 'viewer';
+  el.innerHTML = `
+    <div class="vtop">
+      <button class="iconbtn" data-close style="color:#fff">${ICON.x}</button>
+      <span class="grow" style="flex:1"></span>
+      <span class="vcount"></span>
+    </div>
+    <div class="vimg"><img alt=""></div>
+    <div class="vnav">
+      <button class="iconbtn" data-prev style="color:#fff">${ICON.back}</button>
+      <button class="iconbtn" data-next style="color:#fff;transform:rotate(180deg)">${ICON.back}</button>
+    </div>`;
+  document.body.appendChild(el);
+
+  const img = el.querySelector('img');
+  async function show(){
+    img.src = await imgUrl(ids[i], true);
+    el.querySelector('.vcount').textContent = `${i+1} / ${ids.length}`;
+    el.querySelector('[data-prev]').style.visibility = ids.length>1 ? '' : 'hidden';
+    el.querySelector('[data-next]').style.visibility = ids.length>1 ? '' : 'hidden';
+  }
+  const close = () => {
+    // 큰 이미지는 닫을 때 정리한다
+    for(const id of ids){ const u = fullUrls.get(id); if(u){ URL.revokeObjectURL(u); fullUrls.delete(id); } }
+    el.remove();
+  };
+  el.addEventListener('click', e => {
+    if(e.target.closest('[data-close]')) return close();
+    if(e.target.closest('[data-prev]')){ i = (i - 1 + ids.length) % ids.length; return show(); }
+    if(e.target.closest('[data-next]')){ i = (i + 1) % ids.length; return show(); }
+  });
+  // 좌우로 쓸어 넘기기
+  let x0 = null;
+  el.addEventListener('touchstart', e => { x0 = e.touches[0].clientX; }, {passive:true});
+  el.addEventListener('touchend', e => {
+    if(x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if(Math.abs(dx) < 50) return;
+    i = (i + (dx < 0 ? 1 : -1) + ids.length) % ids.length;
+    show();
+  }, {passive:true});
+  show();
+}
+
 /** 하단 시트 */
 function sheet(title, buttons){
   const bd = document.createElement('div');
@@ -846,6 +1066,7 @@ function renderMain(){
   if(cb) cb.onclick = () => { state.ui.q=''; renderMain(); };
 
   app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('#/p/'+b.dataset.open));
+  paintImages(app);
 }
 
 function locLine(p){
@@ -882,7 +1103,7 @@ function tripMeta(p){
 function listHtml(items){
   return `<div class="list">` + items.map(p=>`
     <button class="item" data-open="${p.id}">
-      <div class="thumb ${p.type}">${TYPE[p.type].icon}</div>
+      <div class="thumb ${p.type}"${coverImageOf(p)?` data-imgsrc="${coverImageOf(p)}"`:''}>${TYPE[p.type].icon}</div>
       <div class="itembody">
         <div class="itemtitle">${esc(p.title||'(제목 없음)')}</div>
         <div class="itemloc">${esc(locLine(p))}</div>
@@ -897,7 +1118,7 @@ function listHtml(items){
 function gridHtml(items){
   return `<div class="grid">` + items.map(p=>`
     <button class="card" data-open="${p.id}">
-      <div class="ph ${p.type}">${TYPE[p.type].icon}</div>
+      <div class="ph ${p.type}"${coverImageOf(p)?` data-imgsrc="${coverImageOf(p)}"`:''}>${TYPE[p.type].icon}</div>
       <div class="cb">
         <div class="itemtitle">${esc(p.title||'(제목 없음)')}</div>
         <div class="itemloc">${esc(locLine(p))}</div>
@@ -947,6 +1168,18 @@ function renderDetail(id){
         </div>
       </div>
 
+      ${mapImagesOf(p).length?`<div class="section"><h2>포인트 이미지</h2>
+        ${mapImagesOf(p).length===1
+          ? `<div class="shotwide" data-imgsrc="${mapImagesOf(p)[0]}" data-view="map:0"></div>`
+          : `<div class="imgstrip">${mapImagesOf(p).map((id,i)=>
+              `<div class="shot" data-imgsrc="${id}" data-view="map:${i}"></div>`).join('')}</div>`}
+      </div>`:''}
+
+      ${photosOf(p).length?`<div class="section"><h2>기타 이미지</h2>
+        <div class="imgstrip">${photosOf(p).map((id,i)=>
+          `<div class="shot" data-imgsrc="${id}" data-view="photo:${i}"></div>`).join('')}</div>
+      </div>`:''}
+
       ${p.content?`<div class="section"><h2>메모</h2><div class="kv">${esc(p.content)}</div></div>`:''}
 
       ${(p.catches||[]).length?`<div class="section"><h2>이 포인트에서 나오는 것</h2>
@@ -972,6 +1205,8 @@ function renderDetail(id){
             ${(t.startTime||t.endTime)?`<div class="triptime">${esc(t.startTime||'')} ~ ${esc(t.endTime||'')}${t.duration!=null?` · ${fmtDuration(t.duration)}`:''}</div>`:''}
             ${(t.catches||[]).length?`<div class="tripcatch">${t.catches.map(c=>esc(c.name)+(c.qty!=null?` ${c.qty}`:'')).join(' · ')}</div>`:`<div class="tripcatch muted">조과 없음</div>`}
             ${t.memo?`<div class="tripmemo">${esc(t.memo)}</div>`:''}
+            ${photosOf(t).length?`<div class="imgstrip" style="margin-top:7px">${photosOf(t).map(id=>
+              `<div class="shot" data-imgsrc="${id}" style="width:64px;height:64px"></div>`).join('')}</div>`:''}
           </button>`).join('') : `<div class="muted">아직 기록이 없습니다.</div>`}
       </div>
     </div>
@@ -990,6 +1225,11 @@ function renderDetail(id){
   });
   const ob = app.querySelector('[data-open]');
   if(ob) ob.onclick = () => openUrl(locationUrlOf(p));
+  app.querySelectorAll('[data-view]').forEach(el => el.onclick = () => {
+    const [kind, idx] = el.dataset.view.split(':');
+    openViewer(kind==='map' ? mapImagesOf(p) : photosOf(p), +idx);
+  });
+  paintImages(app);
   app.querySelectorAll('[data-trip]').forEach(b => b.onclick = () => go(`#/p/${id}/trip/${b.dataset.trip}`));
 }
 
@@ -1035,7 +1275,7 @@ function renderPointEdit(id){
   const m = isNew
     ? { id:uid(), type:'walking', sido:'', sigungu:'', placeName:'', title:'', content:'',
         locMode:'coords', lat:null, lng:null, mapLink:'',
-        catches:[], seasons:[], images:[], thumbnailId:null,
+        catches:[], seasons:[], mapImages:[], photos:[],
         createdAt:now(), updatedAt:now(), deleted:false, synced:false }
     : JSON.parse(JSON.stringify(src));
 
@@ -1049,9 +1289,11 @@ function renderPointEdit(id){
   }
   if(m.mapLink == null) m.mapLink = '';
   // 예전 버전이나 가져오기로 들어온 데이터에 빠진 필드가 있어도 화면이 죽지 않게 한다
-  if(!Array.isArray(m.catches)) m.catches = [];
-  if(!Array.isArray(m.seasons)) m.seasons = [];
-  if(!Array.isArray(m.images))  m.images  = [];
+  if(!Array.isArray(m.catches))   m.catches   = [];
+  if(!Array.isArray(m.seasons))   m.seasons   = [];
+  if(!Array.isArray(m.mapImages)) m.mapImages = [];
+  if(!Array.isArray(m.photos))    m.photos    = Array.isArray(m.images) ? m.images : [];
+  delete m.images;
   if(!TYPE[m.type]) m.type = 'walking';
   // 예전에 저장된 포인트는 모드 정보가 없으니 내용을 보고 정한다
   if(!m.locMode) m.locMode = m.mapLink ? 'link' : 'coords';
@@ -1132,6 +1374,18 @@ function renderPointEdit(id){
         </div>
 
         <div class="hint" data-coordinfo style="margin-top:7px"></div>
+      </div>
+
+      <div class="field">
+        <label class="label">포인트 이미지</label>
+        <div data-mapimages></div>
+        <div class="hint">지도앱 화면을 캡처해 진입로·자리를 메모한 뒤 갤러리에 저장하고, 여기에 첨부하세요.</div>
+      </div>
+
+      <div class="field">
+        <label class="label">기타 이미지</label>
+        <div data-photos></div>
+        <div class="hint">현장 사진, 조과 사진 등.</div>
       </div>
 
       <div class="field">
@@ -1267,6 +1521,12 @@ function renderPointEdit(id){
   get('mapLink').addEventListener('input', refreshCoordInfo);
   refreshCoordInfo();
 
+  // 이미지 첨부
+  try {
+    imagePicker(app.querySelector('[data-mapimages]'), m.mapImages, 'point', m.id, 'map', '지도 이미지');
+    imagePicker(app.querySelector('[data-photos]'),    m.photos,    'point', m.id, 'photo', '사진 추가');
+  } catch(err){ console.error(err); toast('이미지 첨부를 열지 못했습니다'); }
+
   // 하위 편집기 — 하나가 실패해도 저장·뒤로가기는 살아 있어야 한다
   const catchHost = app.querySelector('[data-catches]');
   let ce = { refresh(){} };
@@ -1381,8 +1641,11 @@ function renderTripEdit(pointId, tripId){
 
   const m = isNew
     ? { id:uid(), pointId, date:todayStr(), startTime:'', endTime:'', duration:null,
-        catches:[], memo:'', images:[], createdAt:now(), updatedAt:now(), deleted:false, synced:false }
+        catches:[], memo:'', photos:[], createdAt:now(), updatedAt:now(), deleted:false, synced:false }
     : JSON.parse(JSON.stringify(src));
+  if(!Array.isArray(m.catches)) m.catches = [];
+  if(!Array.isArray(m.photos))  m.photos  = Array.isArray(m.images) ? m.images : [];
+  delete m.images;
 
   $('#app').innerHTML = `
   <div class="screen">
@@ -1423,6 +1686,11 @@ function renderTripEdit(pointId, tripId){
       </div>
 
       <div class="field">
+        <label class="label">사진</label>
+        <div data-photos></div>
+      </div>
+
+      <div class="field">
         <label class="label">메모</label>
         <textarea class="input" data-f="memo" placeholder="물때, 날씨, 사용한 채비 등">${esc(m.memo)}</textarea>
       </div>
@@ -1445,6 +1713,8 @@ function renderTripEdit(pointId, tripId){
   });
 
   catchEditor(app.querySelector('[data-catches]'), m.catches, () => p.type, true);
+  try { imagePicker(app.querySelector('[data-photos]'), m.photos, 'trip', m.id, 'photo', '사진 추가'); }
+  catch(err){ console.error(err); }
 
   app.querySelector('[data-back]').onclick = back;
   app.querySelector('[data-save]').onclick = async () => {
@@ -1538,6 +1808,8 @@ function renderSettings(){
         <h2>데이터</h2>
         <div class="setrow"><div class="grow"><div class="t">포인트</div></div><div class="t">${state.points.length}곳</div></div>
         <div class="setrow"><div class="grow"><div class="t">출조 기록</div></div><div class="t">${state.trips.length}건</div></div>
+        <div class="setrow"><div class="grow"><div class="t">사진</div>
+          <div class="d" data-imgsize>계산 중…</div></div><div class="t" data-imgcount>–</div></div>
         <div class="setrow"><div class="grow"><div class="t">미동기화</div>
           <div class="d">클라우드 동기화는 4단계에서 붙습니다</div></div><div class="t">${unsynced}건</div></div>
       </div>
@@ -1545,7 +1817,7 @@ function renderSettings(){
       <div class="section">
         <h2>백업</h2>
         <button class="setrow" data-export><div class="grow"><div class="t">JSON 내보내기</div>
-          <div class="d">전체 데이터를 파일로 저장</div></div><span class="chev">›</span></button>
+          <div class="d">기록을 파일로 저장 — <b>사진은 포함되지 않습니다</b></div></div><span class="chev">›</span></button>
         <button class="setrow" data-import><div class="grow"><div class="t">JSON 가져오기</div>
           <div class="d">기존 데이터에 합쳐집니다</div></div><span class="chev">›</span></button>
         <input type="file" accept="application/json,.json" data-file hidden>
@@ -1569,7 +1841,7 @@ function renderSettings(){
       <div class="section">
         <h2>정보</h2>
         <div class="setrow"><div class="grow"><div class="t">바다가자</div>
-          <div class="d">1단계 (로컬 저장)</div></div><div class="t">${APP_VERSION}</div></div>
+          <div class="d">1~2단계 (로컬 저장 · 사진)</div></div><div class="t">${APP_VERSION}</div></div>
         <button class="setrow" data-refresh><div class="grow"><div class="t">최신 버전 받기</div>
           <div class="d">고친 내용이 반영되지 않을 때 누르세요</div></div><span class="chev">›</span></button>
       </div>
@@ -1578,6 +1850,17 @@ function renderSettings(){
 
   const app = $('#app');
   app.querySelector('[data-back]').onclick = back;
+
+  // 사진 통계는 blob 을 다 읽어야 하므로 화면을 띄운 뒤 따로 계산한다
+  (async () => {
+    try{
+      const rows = (await dbAll('images')).filter(r => !r.deleted);
+      const bytes = rows.reduce((a,r) => a + (r.bytes||0) + (r.thumb?.size||0), 0);
+      const cnt = app.querySelector('[data-imgcount]'), sz = app.querySelector('[data-imgsize]');
+      if(cnt) cnt.textContent = rows.length + '장';
+      if(sz)  sz.textContent  = rows.length ? (bytes/1048576).toFixed(1) + ' MB 사용 중' : '아직 없음';
+    }catch(e){ console.error(e); }
+  })();
 
   app.querySelector('[data-export]').onclick = () => {
     const data = { app:'badagaja', version:1, exportedAt:new Date().toISOString(),
@@ -1657,6 +1940,10 @@ function renderSettings(){
       <p class="hint">시크릿 모드에서는 동작하지 않을 수 있습니다.</p></div>`;
     return;
   }
+  // 사진이 쌓이면 브라우저가 저장공간을 정리해버릴 수 있으니 보존을 요청한다
+  navigator.storage?.persist?.().catch(()=>{});
+  setTimeout(() => sweepOrphanImages().catch(()=>{}), 3000);
+
   // 지도앱에서 "공유 → 바다가자"로 들어왔다면 곧바로 새 포인트 작성으로 들어간다
   if(captureShare()){
     const c = parseCoordsFromUrl(pendingShare.url);
