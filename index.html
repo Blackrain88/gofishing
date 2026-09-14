@@ -1127,21 +1127,38 @@ function renderPointEdit(id){
   ['lat','lng'].forEach(f => get(f).addEventListener('input', refreshCoordInfo));
 
   // 지도에서 가져오기 모드
+  /** 붙여넣은 덩어리에서 쓸 만한 주소만 추려낸다 (주소가 없으면 좌표라도) */
+  function normalizeLoc(txt){
+    const url = (txt.match(/(?:https?:\/\/|geo:)\S+/) || [])[0];
+    if(url) return url;
+    // 주소가 아니라 좌표만 복사해 온 경우(구글지도에서 좌표 탭)도 받아준다
+    const c = parseCoords(txt);
+    return c ? geoUri(c.lat, c.lng, get('title').value.trim() || placeQuery()) : '';
+  }
   app.querySelector('[data-linkpaste]').onclick = async () => {
+    const input = get('mapLink');
     let txt = '';
     try { txt = await navigator.clipboard.readText(); }
-    catch { txt = prompt('지도 주소를 붙여넣으세요') || ''; }
-    let url = (txt.match(/(?:https?:\/\/|geo:)\S+/) || [])[0];
-    if(!url){
-      // 주소가 아니라 좌표만 복사해 온 경우(구글지도에서 좌표 탭)도 받아준다
-      const c = parseCoords(txt);
-      if(c) url = geoUri(c.lat, c.lng, get('title').value.trim() || placeQuery());
+    catch {
+      // 클립보드 읽기 권한이 없으면 입력칸을 띄워 직접 붙여넣게 한다 (팝업 없음)
+      input.focus();
+      return toast('입력칸을 길게 눌러 붙여넣어 주세요');
     }
+    const url = normalizeLoc(txt);
     if(!url) return toast('주소도 좌표도 찾지 못했습니다');
-    get('mapLink').value = url;
+    input.value = url;
     refreshCoordInfo();
     toast(parseCoordsFromUrl(url) ? '좌표까지 읽었습니다' : '주소를 넣었습니다');
   };
+  // 직접 붙여넣었을 때도 똑같이 정리해 준다
+  get('mapLink').addEventListener('paste', e => {
+    const txt = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+    const url = txt && normalizeLoc(txt);
+    if(!url) return;                 // 알아볼 수 없으면 그냥 기본 붙여넣기
+    e.preventDefault();
+    get('mapLink').value = url;
+    refreshCoordInfo();
+  });
   /* 지도앱 실행 — 저장된 위치가 있으면 그 자리를 열고, 없으면 지도앱만 띄운다.
      어느 쪽이든 geo: 라서 어떤 지도앱을 쓸지는 시스템이 정한다. */
   app.querySelector('[data-maplaunch]').onclick = () => {
