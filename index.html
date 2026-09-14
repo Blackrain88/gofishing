@@ -83,9 +83,9 @@ a{color:var(--accent)}
 /* ---------- list ---------- */
 .list{display:flex;flex-direction:column;gap:9px}
 .item{display:flex;gap:11px;background:var(--card);border-radius:var(--r);padding:11px;
-  box-shadow:var(--shadow);align-items:center;text-align:left;width:100%}
+  box-shadow:var(--shadow);align-items:flex-start;text-align:left;width:100%}
 .item:active{transform:scale(.995)}
-.thumb{width:56px;height:56px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:24px}
+.thumb{width:56px;height:56px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:24px;margin-top:2px}
 .thumb.walking{background:var(--walking-bg)}
 .thumb.haerujil{background:var(--haerujil-bg)}
 .itembody{flex:1;min-width:0}
@@ -93,6 +93,11 @@ a{color:var(--accent)}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .itemloc{font-size:12.5px;color:var(--dim);margin-top:2px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.catchline{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.cchip{font-size:11px;line-height:1.5;padding:2px 7px;border-radius:6px;background:var(--bg);
+  border:1px solid var(--line);color:var(--dim);white-space:nowrap}
+.cchip.more{border-style:dashed}
+.cchip.tally{border-color:transparent;background:var(--bg);font-variant-numeric:tabular-nums}
 .itemmeta{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
 .badge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;letter-spacing:-.01em}
 .badge.walking{background:var(--walking-bg);color:var(--walking)}
@@ -195,6 +200,8 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
   font-weight:650;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:6px}
 .btn.ghost{background:var(--bg);color:var(--fg);border:1px solid var(--line)}
 .btn.danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
+.btn.sm3{font-size:13px;padding:11px 2px;gap:4px}
+.btn.sm3 svg{width:15px;height:15px}
 .btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
 /* trip item */
@@ -311,7 +318,8 @@ const ICON = {
   trash:'<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
   edit:'<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
   nav:'<svg viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>',
-  pin:'<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+  pin:'<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+  map:'<svg viewBox="0 0 24 24"><path d="M9 3L3 5.5v15L9 18l6 3 6-2.5v-15L15 6 9 3z"/><path d="M9 3v15M15 6v15"/></svg>'
 };
 
 /* ============================================================
@@ -729,6 +737,26 @@ function renderMain(){
 function locLine(p){
   return [p.sido,p.sigungu,p.placeName].filter(Boolean).join(' › ') || '장소 미지정';
 }
+/** 리스트에 보여줄 조과물 이름 — 포인트에 적힌 것 우선, 없으면 출조 기록에서 집계 */
+function catchNames(p){
+  if((p.catches||[]).length) return p.catches.map(c=>c.name);
+  const t = {};
+  for(const tr of state.trips){
+    if(tr.pointId!==p.id) continue;
+    for(const c of (tr.catches||[])) t[c.name] = (t[c.name]||0) + (c.qty ?? 1);
+  }
+  return Object.entries(t).sort((a,b)=>b[1]-a[1]).map(([n])=>n);
+}
+function catchLine(p, max){
+  const names = catchNames(p);
+  if(!names.length) return '';
+  const shown = names.slice(0,max);
+  const rest  = names.length - shown.length;
+  return `<div class="catchline">`
+    + shown.map(n=>`<span class="cchip">${esc(n)}</span>`).join('')
+    + (rest ? `<span class="cchip more">+${rest}</span>` : '')
+    + `</div>`;
+}
 function tripMeta(p){
   const n = tripsOf(p.id).length;
   const last = lastTripDate(p.id);
@@ -744,6 +772,7 @@ function listHtml(items){
       <div class="itembody">
         <div class="itemtitle">${esc(p.title||'(제목 없음)')}</div>
         <div class="itemloc">${esc(locLine(p))}</div>
+        ${catchLine(p, 4)}
         <div class="itemmeta">
           <span class="badge ${p.type}">${TYPE[p.type].label}</span>
           <span class="sub">${esc(tripMeta(p))}</span>
@@ -758,7 +787,11 @@ function gridHtml(items){
       <div class="cb">
         <div class="itemtitle">${esc(p.title||'(제목 없음)')}</div>
         <div class="itemloc">${esc(locLine(p))}</div>
-        <div class="itemmeta"><span class="badge ${p.type}">${TYPE[p.type].label}</span></div>
+        ${catchLine(p, 3)}
+        <div class="itemmeta">
+          <span class="badge ${p.type}">${TYPE[p.type].label}</span>
+          <span class="sub">${esc(tripMeta(p))}</span>
+        </div>
       </div>
     </button>`).join('') + `</div>`;
 }
@@ -847,26 +880,50 @@ function renderDetail(id){
   app.querySelectorAll('[data-trip]').forEach(b => b.onclick = () => go(`#/p/${id}/trip/${b.dataset.trip}`));
 }
 
+/** 커스텀 스킴으로 앱 실행을 시도하고, 열리지 않으면 웹 주소로 폴백 */
+function openExternal(scheme, web){
+  const t0 = Date.now();
+  location.href = scheme;
+  setTimeout(() => { if(Date.now()-t0 < 2200 && !document.hidden) location.href = web; }, 1400);
+}
+
 /** 외부 지도앱 길찾기 */
 function navSheet(p){
   const lat = p.lat, lng = p.lng, name = encodeURIComponent(p.title||'목적지');
-  const openScheme = (scheme, web) => {
-    const t0 = Date.now();
-    location.href = scheme;
-    setTimeout(() => { if(Date.now()-t0 < 2200 && !document.hidden) location.href = web; }, 1400);
-  };
   sheet('길찾기 앱 선택', [
-    { label:'네이버지도', run:() => openScheme(
+    { label:'네이버지도', run:() => openExternal(
         `nmap://route/car?dlat=${lat}&dlng=${lng}&dname=${name}&appname=badagaja.app`,
         `https://map.naver.com/p/directions/-/${lng},${lat},${name}/-/car`) },
-    { label:'카카오맵', run:() => openScheme(
+    { label:'카카오맵', run:() => openExternal(
         `kakaomap://route?ep=${lat},${lng}&by=CAR`,
         `https://map.kakao.com/link/to/${decodeURIComponent(name)},${lat},${lng}`) },
-    { label:'구글지도', style:'', run:() =>
+    { label:'구글지도', run:() =>
         location.href = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` },
     { label:'좌표 복사', run:() => {
         navigator.clipboard?.writeText(`${lat}, ${lng}`).then(()=>toast('좌표를 복사했습니다'),
           ()=>toast('복사에 실패했습니다')); } }
+  ]);
+}
+
+/**
+ * 외부 지도앱 열기 — 포인트 입력 중 위치를 찾아보거나 화면을 캡처하기 위한 용도.
+ * 좌표가 있으면 그 지점을, 없으면 입력한 장소명으로 검색한다.
+ */
+function mapOpenSheet(lat, lng, query){
+  const has = (lat!=null && lng!=null);
+  const raw = (query||'').trim();
+  const q   = encodeURIComponent(raw || (has ? `${lat},${lng}` : ''));
+  sheet(has ? '지도앱에서 이 좌표 열기' : (raw ? `지도앱에서 "${raw}" 검색` : '지도앱 열기'), [
+    { label:'네이버지도', run:() => openExternal(
+        has ? `nmap://place?lat=${lat}&lng=${lng}&name=${q}&appname=badagaja.app`
+            : `nmap://search?query=${q}&appname=badagaja.app`,
+        `https://map.naver.com/p/search/${q}`) },
+    { label:'카카오맵', run:() => openExternal(
+        has ? `kakaomap://look?p=${lat},${lng}` : `kakaomap://search?q=${q}`,
+        has ? `https://map.kakao.com/link/map/${raw||'위치'},${lat},${lng}`
+            : `https://map.kakao.com/?q=${q}`) },
+    { label:'구글지도', run:() => location.href =
+        `https://www.google.com/maps/search/?api=1&query=${has?`${lat},${lng}`:q}` }
   ]);
 }
 
@@ -932,10 +989,11 @@ function renderPointEdit(id){
           <input class="input" data-f="lng" inputmode="decimal" placeholder="경도" value="${m.lng??''}">
         </div>
         <div class="row2">
-          <button type="button" class="btn ghost" data-gps>${ICON.pin} 현재 위치</button>
-          <button type="button" class="btn ghost" data-paste>붙여넣기</button>
+          <button type="button" class="btn ghost sm3" data-gps>${ICON.pin} 현재위치</button>
+          <button type="button" class="btn ghost sm3" data-paste>붙여넣기</button>
+          <button type="button" class="btn ghost sm3" data-map>${ICON.map} 지도앱</button>
         </div>
-        <div class="hint">지도앱에서 복사한 좌표를 붙여넣으면 자동으로 분리됩니다.</div>
+        <div class="hint">지도앱에서 위치를 찾아 좌표를 복사해 오세요. 붙여넣기가 위도·경도를 자동으로 분리합니다.</div>
       </div>
 
       <div class="field">
@@ -986,6 +1044,12 @@ function renderPointEdit(id){
     if(!c) return toast('좌표를 인식하지 못했습니다');
     get('lat').value = c.lat.toFixed(6); get('lng').value = c.lng.toFixed(6);
     toast('좌표를 넣었습니다');
+  };
+  app.querySelector('[data-map]').onclick = () => {
+    const la = parseFloat(get('lat').value), ln = parseFloat(get('lng').value);
+    const q = [get('sido').value, get('sigungu').value, get('placeName').value]
+                .map(s=>s.trim()).filter(Boolean).join(' ') || get('title').value.trim();
+    mapOpenSheet(isFinite(la)?la:null, isFinite(ln)?ln:null, q);
   };
 
   // 하위 편집기
