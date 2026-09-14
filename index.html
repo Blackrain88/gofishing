@@ -316,7 +316,7 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
    ============================================================ */
 
 /* ---------- 상수 ---------- */
-const APP_VERSION = 'v13';   // sw.js 의 VERSION 과 함께 올린다
+const APP_VERSION = 'v14';   // sw.js 의 VERSION 과 함께 올린다
 
 const SIDO = ['서울','부산','대구','인천','광주','대전','울산','세종',
               '경기','강원','충북','충남','전북','전남','경북','경남','제주'];
@@ -629,16 +629,203 @@ function visiblePoints(){
 }
 
 /* ============================================================
+   ZIP 만들기 / 읽기 — 외부 라이브러리 없이, 압축 없는(store) 방식.
+   사진(JPEG)은 이미 압축돼 있어서 다시 압축해봐야 얻는 게 없다.
+   ============================================================ */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for(let n = 0; n < 256; n++){
+    let c = n;
+    for(let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+function crc32(buf){
+  let c = 0xFFFFFFFF;
+  for(let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+const enc = new TextEncoder();
+
+/** @param {Array<{name:string, data:Uint8Array}>} files */
+function zipWrite(files){
+  const chunks = [], central = [];
+  let offset = 0;
+  const u16 = n => [n & 255, (n >>> 8) & 255];
+  const u32 = n => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+
+  for(const f of files){
+    const name = enc.encode(f.name);
+    const crc = crc32(f.data), size = f.data.length;
+    // 0x0800 = 이름이 UTF-8 이라는 표시 (한글 파일명 대비)
+    const local = new Uint8Array([
+      ...u32(0x04034b50), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length), ...u16(0), ...name
+    ]);
+    chunks.push(local, f.data);
+    central.push(new Uint8Array([
+      ...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0),
+      ...u32(crc), ...u32(size), ...u32(size), ...u16(name.length),
+      ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(offset), ...name
+    ]));
+    offset += local.length + size;
+  }
+  const cdSize = central.reduce((a, c) => a + c.length, 0);
+  const eocd = new Uint8Array([
+    ...u32(0x06054b50), ...u16(0), ...u16(0),
+    ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), ...u16(0)
+  ]);
+  return new Blob([...chunks, ...central, eocd], { type:'application/zip' });
+}
+
+/** @returns {Promise<Map<string, Uint8Array>>} */
+async function zipRead(blob){
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  const dv = new DataView(buf.buffer);
+  let eocd = -1;
+  for(let i = buf.length - 22; i >= 0 && i > buf.length - 66000; i--){
+    if(dv.getUint32(i, true) === 0x06054b50){ eocd = i; break; }
+  }
+  if(eocd < 0) throw new Error('올바른 백업 파일이 아닙니다');
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const out = new Map();
+  const dec = new TextDecoder();
+  for(let i = 0; i < count; i++){
+    if(dv.getUint32(p, true) !== 0x02014b50) throw new Error('백업 파일이 손상되었습니다');
+    const method  = dv.getUint16(p + 10, true);
+    const size    = dv.getUint32(p + 24, true);
+    const nameLen = dv.getUint16(p + 28, true);
+    const extraLen= dv.getUint16(p + 30, true);
+    const cmtLen  = dv.getUint16(p + 32, true);
+    const lo      = dv.getUint32(p + 42, true);
+    const name    = dec.decode(buf.subarray(p + 46, p + 46 + nameLen));
+    if(method !== 0) throw new Error('압축된 백업은 읽을 수 없습니다');
+    const lNameLen  = dv.getUint16(lo + 26, true);
+    const lExtraLen = dv.getUint16(lo + 28, true);
+    const start = lo + 30 + lNameLen + lExtraLen;
+    out.set(name, buf.subarray(start, start + size));
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return out;
+}
+
+/* ============================================================
+   백업 파일 방식 — 계정도 서버도 없이, 파일 하나로 통째 보관
+   ============================================================ */
+
+/** 백업에 담을 이미지 (포인트 이미지는 항상, 나머지는 옵션) */
+async function imagesForBackup(){
+  return (await dbAll('images')).filter(r => !r.deleted && r.blob && (r.kind === 'map' || SYNC.extras));
+}
+
+async function buildBackup(onStep){
+  const step = onStep || (()=>{});
+  step('기록 모으는 중…');
+  const points = (await dbAll('points')).filter(r => !r.deleted);
+  const trips  = (await dbAll('trips')).filter(r => !r.deleted);
+  const imgs   = await imagesForBackup();
+
+  const files = [{
+    name: 'badagaja.json',
+    data: enc.encode(JSON.stringify({
+      app:'badagaja', version:2, exportedAt:new Date().toISOString(),
+      points, trips, presets: state.presets,
+      images: imgs.map(r => ({ id:r.id, ownerType:r.ownerType, ownerId:r.ownerId, kind:r.kind,
+                               w:r.w, h:r.h, bytes:r.bytes, createdAt:r.createdAt }))
+    }, null, 1))
+  }];
+  for(let i = 0; i < imgs.length; i++){
+    step(`사진 ${i+1}/${imgs.length} 담는 중…`);
+    files.push({ name:`images/${imgs[i].id}.jpg`,
+                 data:new Uint8Array(await imgs[i].blob.arrayBuffer()) });
+  }
+  step('파일 만드는 중…');
+  return { blob: zipWrite(files), points:points.length, trips:trips.length, images:imgs.length };
+}
+
+/** 백업 파일을 시스템 공유창으로 넘긴다 (드라이브·MyBox 등 아무 데나 저장 가능) */
+async function shareBackup(onStep){
+  const r = await buildBackup(onStep);
+  const name = `바다가자-백업-${todayStr()}.zip`;
+  const file = new File([r.blob], name, { type:'application/zip' });
+  let shared = false;
+  try{
+    if(navigator.canShare && navigator.canShare({ files:[file] })){
+      await navigator.share({ files:[file], title:'바다가자 백업' });
+      shared = true;
+    }
+  }catch(e){
+    if(e && e.name === 'AbortError') return null;   // 사용자가 취소
+    console.warn('공유 실패, 내려받기로 대체', e);
+  }
+  if(!shared){
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(r.blob);
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+  }
+  state.ui.backupAt = now(); saveUI();
+  return r;
+}
+
+async function restoreBackup(file, onStep){
+  const step = onStep || (()=>{});
+  step('백업 파일 읽는 중…');
+  const entries = await zipRead(file);
+  const metaRaw = entries.get('badagaja.json');
+  if(!metaRaw) throw new Error('백업 파일 안에 기록이 없습니다');
+  const data = JSON.parse(new TextDecoder().decode(metaRaw));
+  if(data.app !== 'badagaja') throw new Error('바다가자 백업이 아닙니다');
+
+  for(const p of (data.points||[])) await dbPut('points', p);
+  for(const t of (data.trips ||[])) await dbPut('trips',  t);
+  if(data.presets) { state.presets = data.presets; await savePresets(); }
+
+  const metas = data.images || [];
+  let got = 0;
+  for(let i = 0; i < metas.length; i++){
+    const m = metas[i];
+    const bytes = entries.get(`images/${m.id}.jpg`);
+    if(!bytes) continue;
+    step(`사진 ${i+1}/${metas.length} 복원 중…`);
+    const blob = new Blob([bytes], { type:'image/jpeg' });
+    const bmp = await createImageBitmap(blob);
+    const th  = await shrink(bmp, THUMB_MAX, THUMB_Q);
+    bmp.close?.();
+    await dbPut('images', Object.assign({}, m, {
+      blob, thumb: th.blob, deleted:false, synced:false,
+      updatedAt: m.createdAt || now()
+    }));
+    got++;
+  }
+  await loadAll();
+  step('완료');
+  return { points:(data.points||[]).length, trips:(data.trips||[]).length, images:got };
+}
+
+/** 마지막 백업 이후 바뀐 것이 몇 건인지 */
+function changedSinceBackup(){
+  const since = state.ui.backupAt || 0;
+  return state.points.filter(p => p.updatedAt > since).length
+       + state.trips.filter(t => t.updatedAt > since).length;
+}
+
+/* ============================================================
    클라우드 동기화 (선택) — Google Sheets + Apps Script
    URL/토큰을 넣지 않으면 앱은 완전히 로컬로만 동작한다.
    ============================================================ */
 const SYNC = {
   get enabled() { return !!state.ui.syncOn; },        // 사용자가 켠 스위치
+  get mode()    { return state.ui.syncMode || 'file'; }, // 'file' = 백업 파일, 'sheet' = 구글 시트
   get url()     { return (state.ui.syncUrl   || '').trim(); },
   get token()   { return (state.ui.syncToken || '').trim(); },
   get extras()  { return !!state.ui.syncExtras; },    // 기타·출조 사진까지 올릴지 (기본 꺼짐)
   get ready()   { return !!(this.url && this.token); }, // 주소·토큰이 채워졌는지
-  get on()      { return this.enabled && this.ready; } // 실제로 동작하는 상태
+  // 구글 시트 방식이 실제로 동작하는 상태
+  get on()      { return this.enabled && this.mode === 'sheet' && this.ready; }
 };
 
 async function api(op, body){
@@ -2049,16 +2236,43 @@ function renderSettings(){
         <button class="setrow" data-synctoggle style="padding-top:2px${SYNC.enabled?'':';border-bottom:0'}">
           <div class="grow"><div class="t">동기화 사용</div>
             <div class="d">${SYNC.enabled
-              ? '구글 시트에 기록과 포인트 이미지를 올립니다'
-              : (SYNC.ready
-                  ? '지금은 <b>폰에만</b> 저장합니다. 입력해 둔 주소와 토큰은 그대로 보관됩니다'
-                  : '꺼두면 <b>폰에만</b> 저장하고 아무 데도 보내지 않습니다')}</div></div>
+              ? (SYNC.mode==='file' ? '백업 파일로 기록과 포인트 이미지를 보관합니다'
+                                    : '구글 시트에 기록과 포인트 이미지를 올립니다')
+              : '꺼두면 <b>폰에만</b> 저장합니다. 입력해 둔 설정은 그대로 보관됩니다'}</div></div>
           <span class="switch${SYNC.enabled?' on':''}"></span>
         </button>
 
         <div${SYNC.enabled?'':' hidden'} data-syncbody>
+          <label class="label" style="margin-top:14px">방식</label>
+          <div class="seg">
+            <button type="button" data-syncmode="file"  aria-pressed="${SYNC.mode==='file'}">백업 파일</button>
+            <button type="button" data-syncmode="sheet" aria-pressed="${SYNC.mode==='sheet'}">구글 시트</button>
+          </div>
+
+          <button class="setrow" data-extras style="margin-top:6px">
+            <div class="grow"><div class="t">기타 이미지·출조 사진도 포함</div>
+              <div class="d">포인트 이미지는 항상 넣습니다. 나머지는 기본적으로 폰에만 둡니다</div></div>
+            <span class="switch${SYNC.extras?' on':''}"></span>
+          </button>
+
+          <!-- 백업 파일 방식 -->
+          <div${SYNC.mode==='file'?'':' hidden'} data-modefile>
+            <div class="hint" style="margin:10px 0">
+              기록과 사진을 <b>파일 하나</b>로 묶어 내보냅니다. 저장할 곳은 안드로이드 공유창에서
+              고르면 되고 — 구글 드라이브, 네이버 MyBox, 어디든 됩니다. 계정 연결이 필요 없습니다.
+            </div>
+            <button class="setrow" data-backup><div class="grow"><div class="t">백업 만들기</div>
+              <div class="d" data-backupstat>확인 중…</div></div><span class="chev">›</span></button>
+            <button class="setrow" data-restorefile><div class="grow"><div class="t">백업에서 복원</div>
+              <div class="d">저장해 둔 백업 파일을 골라 되살립니다</div></div><span class="chev">›</span></button>
+            <input type="file" accept=".zip,application/zip" data-backupfile hidden>
+          </div>
+
+          <!-- 구글 시트 방식 -->
+          <div${SYNC.mode==='sheet'?'':' hidden'} data-modesheet>
           <div class="hint" style="margin:12px 0 10px">
-            설정 방법은 함께 받은 <b>Code.gs</b> 파일 맨 위에 적어 두었습니다.
+            바뀔 때마다 <b>자동으로</b> 올라갑니다. 대신 구글 시트와 Apps Script를 한 번 설정해야 합니다 —
+            방법은 함께 받은 <b>Code.gs</b> 파일 맨 위에 적어 두었습니다.
           </div>
           <label class="label">웹 앱 주소</label>
           <input class="input" data-syncurl placeholder="https://script.google.com/macros/s/..../exec"
@@ -2071,16 +2285,11 @@ function renderSettings(){
             <button class="btn" data-syncsave>저장</button>
           </div>
 
-          <button class="setrow" data-extras style="margin-top:6px">
-            <div class="grow"><div class="t">기타 이미지·출조 사진도 올리기</div>
-              <div class="d">포인트 이미지는 항상 올립니다. 나머지는 기본적으로 폰에만 둡니다</div></div>
-            <span class="switch${SYNC.extras?' on':''}"></span>
-          </button>
-
           <button class="setrow" data-syncnow><div class="grow"><div class="t">지금 동기화</div>
             <div class="d" data-syncstat>확인 중…</div></div><span class="chev">›</span></button>
           <button class="setrow" data-restore><div class="grow"><div class="t">클라우드에서 복원</div>
             <div class="d">앱을 새로 설치했을 때 전체를 내려받습니다</div></div><span class="chev">›</span></button>
+          </div>
         </div>
       </div>
 
@@ -2140,6 +2349,41 @@ function renderSettings(){
     else if(!state.ui.syncOn) toast('동기화를 껐습니다 — 이제 폰에만 저장합니다');
     renderSettings();
     if(state.ui.syncOn && !SYNC.ready) $('[data-syncurl]')?.focus();
+  };
+
+  app.querySelectorAll('[data-syncmode]').forEach(b => b.onclick = async () => {
+    state.ui.syncMode = b.dataset.syncmode;
+    await saveUI(); renderSettings();
+  });
+
+  // ---- 백업 파일 방식 ----
+  const bstat = app.querySelector('[data-backupstat]');
+  function refreshBackupStat(){
+    if(!bstat) return;
+    const n = changedSinceBackup();
+    const when = state.ui.backupAt ? new Date(state.ui.backupAt).toLocaleString('ko-KR') : '아직 없음';
+    bstat.textContent = n ? `마지막 백업 이후 ${n}건 바뀜 · 마지막 ${when}` : `마지막 ${when}`;
+  }
+  refreshBackupStat();
+
+  app.querySelector('[data-backup]')?.addEventListener('click', async () => {
+    try{
+      const r = await shareBackup(msg => { if(bstat) bstat.textContent = msg; });
+      if(r) toast(`백업 완료 — 포인트 ${r.points} · 출조 ${r.trips} · 사진 ${r.images}`);
+    }catch(e){ toast('백업 실패: ' + e.message); }
+    refreshBackupStat();
+  });
+  const bfile = app.querySelector('[data-backupfile]');
+  app.querySelector('[data-restorefile]')?.addEventListener('click', () => bfile.click());
+  if(bfile) bfile.onchange = async () => {
+    const f = bfile.files[0]; bfile.value = '';
+    if(!f) return;
+    if(!confirm('백업 파일의 내용을 현재 기록에 합칩니다. 계속할까요?')) return;
+    try{
+      const r = await restoreBackup(f, msg => { if(bstat) bstat.textContent = msg; });
+      toast(`복원 완료 — 포인트 ${r.points} · 출조 ${r.trips} · 사진 ${r.images}`);
+      renderSettings();
+    }catch(e){ toast('복원 실패: ' + e.message); refreshBackupStat(); }
   };
 
   const statEl = app.querySelector('[data-syncstat]');
