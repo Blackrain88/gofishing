@@ -1,0 +1,1267 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b3d5c">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>바다가자</title>
+<style>
+:root{
+  --bg:#f4f7f9; --card:#ffffff; --fg:#132430; --dim:#5d7080; --line:#dde5ea;
+  --accent:#0b6ea8; --accent-fg:#fff;
+  --walking:#1f7a5a; --walking-bg:#e3f4ec;
+  --haerujil:#a8611f; --haerujil-bg:#fbeee0;
+  --danger:#c0392b;
+  --shadow:0 1px 3px rgba(19,36,48,.10),0 6px 18px rgba(19,36,48,.06);
+  --r:14px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0e1620; --card:#17222e; --fg:#e6edf3; --dim:#93a6b5; --line:#26343f;
+    --accent:#3fa3dd; --accent-fg:#07222f;
+    --walking:#5ddba8; --walking-bg:#12342a;
+    --haerujil:#e8a765; --haerujil-bg:#3a2814;
+    --danger:#ff7b6b;
+    --shadow:0 1px 3px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.3);
+  }
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:var(--bg);color:var(--fg);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Malgun Gothic",sans-serif;
+  overscroll-behavior-y:none;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{background:none;border:0;padding:0;cursor:pointer}
+a{color:var(--accent)}
+
+/* ---------- layout ---------- */
+#app{min-height:100%;display:flex;flex-direction:column}
+.screen{flex:1;display:flex;flex-direction:column;min-height:100%}
+.topbar{
+  position:sticky;top:0;z-index:20;background:var(--card);
+  border-bottom:1px solid var(--line);
+  padding:calc(env(safe-area-inset-top,0px) + 10px) 12px 10px;
+}
+.topbar-row{display:flex;align-items:center;gap:10px;min-height:34px}
+.topbar h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.02em;flex:1;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.iconbtn{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;
+  color:var(--dim);flex:none}
+.iconbtn:active{background:var(--line)}
+.iconbtn svg{width:21px;height:21px;stroke:currentColor;fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.body{flex:1;padding:12px 12px calc(88px + var(--safe-b))}
+
+/* ---------- tabs / seg ---------- */
+.seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:11px;padding:3px;gap:3px}
+.seg button{flex:1;padding:8px 4px;border-radius:8px;font-size:13.5px;font-weight:600;color:var(--dim);
+  white-space:nowrap;transition:background .12s}
+.seg button[aria-pressed=true]{background:var(--card);color:var(--fg);box-shadow:var(--shadow)}
+
+/* ---------- search ---------- */
+.searchwrap{position:relative;margin-top:10px}
+.searchwrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);
+  width:17px;height:17px;stroke:var(--dim);fill:none;stroke-width:2;pointer-events:none}
+.search{width:100%;padding:10px 34px 10px 34px;border:1px solid var(--line);border-radius:11px;
+  background:var(--bg);outline:none}
+.search:focus{border-color:var(--accent)}
+.clearbtn{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  width:26px;height:26px;border-radius:50%;display:grid;place-items:center;color:var(--dim)}
+.clearbtn svg{position:static;transform:none;width:14px;height:14px;stroke:currentColor}
+
+.toolrow{display:flex;align-items:center;gap:8px;margin-top:10px}
+.count{font-size:12.5px;color:var(--dim);flex:1}
+.minisel{border:1px solid var(--line);background:var(--card);border-radius:9px;padding:5px 8px;
+  font-size:12.5px;color:var(--dim)}
+
+/* ---------- list ---------- */
+.list{display:flex;flex-direction:column;gap:9px}
+.item{display:flex;gap:11px;background:var(--card);border-radius:var(--r);padding:11px;
+  box-shadow:var(--shadow);align-items:center;text-align:left;width:100%}
+.item:active{transform:scale(.995)}
+.thumb{width:56px;height:56px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:24px}
+.thumb.walking{background:var(--walking-bg)}
+.thumb.haerujil{background:var(--haerujil-bg)}
+.itembody{flex:1;min-width:0}
+.itemtitle{font-weight:650;font-size:15.5px;letter-spacing:-.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.itemloc{font-size:12.5px;color:var(--dim);margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.itemmeta{display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.badge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:6px;letter-spacing:-.01em}
+.badge.walking{background:var(--walking-bg);color:var(--walking)}
+.badge.haerujil{background:var(--haerujil-bg);color:var(--haerujil)}
+.sub{font-size:11.5px;color:var(--dim)}
+
+/* grid view */
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+.card{background:var(--card);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);text-align:left}
+.card .ph{aspect-ratio:4/3;display:grid;place-items:center;font-size:36px}
+.card .ph.walking{background:var(--walking-bg)}
+.card .ph.haerujil{background:var(--haerujil-bg)}
+.card .cb{padding:9px 10px 11px}
+.card .itemtitle{font-size:14.5px}
+
+/* ---------- empty ---------- */
+.empty{text-align:center;padding:56px 24px;color:var(--dim)}
+.empty .big{font-size:44px;margin-bottom:12px}
+.empty p{margin:6px 0;font-size:14px}
+
+/* ---------- fab ---------- */
+.fab{position:fixed;right:16px;bottom:calc(18px + var(--safe-b));z-index:30;
+  height:52px;padding:0 20px;border-radius:26px;background:var(--accent);color:var(--accent-fg);
+  font-weight:700;font-size:15px;box-shadow:0 6px 20px rgba(11,110,168,.36);
+  display:flex;align-items:center;gap:7px}
+.fab svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
+
+/* ---------- form ---------- */
+.field{margin-bottom:16px}
+.label{display:block;font-size:12.5px;font-weight:700;color:var(--dim);margin-bottom:6px;
+  letter-spacing:.01em}
+.label .req{color:var(--danger)}
+.input,textarea.input,select.input{
+  width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:11px;
+  background:var(--card);outline:none;-webkit-appearance:none;appearance:none}
+select.input{background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),
+  linear-gradient(135deg,var(--dim) 50%,transparent 50%);
+  background-position:calc(100% - 16px) 50%,calc(100% - 11px) 50%;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:32px}
+.input:focus{border-color:var(--accent)}
+textarea.input{resize:vertical;min-height:88px;line-height:1.55}
+.row2{display:flex;gap:8px}
+.row2>*{flex:1;min-width:0}
+.hint{font-size:11.5px;color:var(--dim);margin-top:5px}
+
+/* combo */
+.combo{position:relative}
+.combo-pop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:40;
+  background:var(--card);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);
+  max-height:210px;overflow:auto}
+.combo-pop button{display:block;width:100%;text-align:left;padding:10px 12px;font-size:14.5px;
+  border-bottom:1px solid var(--line)}
+.combo-pop button:last-child{border-bottom:0}
+.combo-pop button:active{background:var(--bg)}
+.combo-pop .newitem{color:var(--accent);font-weight:650}
+
+/* chips */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;border-radius:9px;
+  background:var(--bg);border:1px solid var(--line);font-size:13.5px}
+.chip.sel{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+.chip .x{font-size:15px;line-height:1;opacity:.75;margin-left:1px}
+.presetbox{margin-top:9px;padding:10px;border:1px dashed var(--line);border-radius:11px;background:var(--bg)}
+.presetbox .ttl{font-size:11.5px;color:var(--dim);margin-bottom:7px;display:flex;align-items:center;gap:8px}
+.presetbox .ttl button{font-size:11.5px;color:var(--accent);font-weight:650}
+.addrow{display:flex;gap:6px;margin-top:9px}
+.addrow .input{flex:1}
+.btn-sm{padding:0 14px;border-radius:11px;background:var(--accent);color:var(--accent-fg);
+  font-weight:650;font-size:14px;flex:none}
+.btn-sm.ghost{background:var(--bg);color:var(--fg);border:1px solid var(--line)}
+
+/* rows (season / catch-qty) */
+.editrow{display:flex;gap:6px;align-items:center;margin-bottom:7px}
+.editrow .input{padding:9px 10px}
+.editrow select.input{flex:none;width:76px;padding-right:26px;background-position:calc(100% - 13px) 50%,calc(100% - 8px) 50%}
+.editrow .tilde{color:var(--dim);font-size:13px;flex:none}
+.delrow{width:32px;height:32px;flex:none;border-radius:9px;display:grid;place-items:center;color:var(--dim)}
+.delrow:active{background:var(--line)}
+.delrow svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.qtybox{display:flex;align-items:center;gap:0;border:1px solid var(--line);border-radius:9px;
+  background:var(--card);flex:none}
+.qtybox button{width:30px;height:32px;display:grid;place-items:center;color:var(--dim);font-size:17px}
+.qtybox span{min-width:26px;text-align:center;font-size:14px;font-weight:650}
+
+/* section */
+.section{background:var(--card);border-radius:var(--r);padding:14px;box-shadow:var(--shadow);margin-bottom:11px}
+.section h2{margin:0 0 10px;font-size:13px;font-weight:700;color:var(--dim);letter-spacing:.02em;
+  display:flex;align-items:center;gap:8px}
+.section h2 .grow{flex:1}
+.section h2 button{font-size:12.5px;color:var(--accent);font-weight:650}
+.kv{font-size:14.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+.muted{color:var(--dim);font-size:13.5px}
+
+/* detail header */
+.dhead{background:var(--card);padding:16px 14px;box-shadow:var(--shadow);border-radius:var(--r);margin-bottom:11px}
+.dhead h1{margin:8px 0 4px;font-size:21px;font-weight:750;letter-spacing:-.02em;line-height:1.3}
+.dloc{font-size:13px;color:var(--dim)}
+.btnrow{display:flex;gap:8px;margin-top:13px}
+.btn{flex:1;padding:11px;border-radius:11px;background:var(--accent);color:var(--accent-fg);
+  font-weight:650;font-size:14.5px;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn.ghost{background:var(--bg);color:var(--fg);border:1px solid var(--line)}
+.btn.danger{background:transparent;color:var(--danger);border:1px solid var(--line)}
+.btn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* trip item */
+.trip{display:block;width:100%;text-align:left;padding:11px 0;border-bottom:1px solid var(--line)}
+.trip:last-child{border-bottom:0;padding-bottom:0}
+.trip:first-child{padding-top:0}
+.tripdate{font-weight:650;font-size:14.5px}
+.triptime{font-size:12.5px;color:var(--dim);margin-top:2px}
+.tripcatch{font-size:13.5px;margin-top:5px}
+.tripmemo{font-size:12.5px;color:var(--dim);margin-top:4px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* sheet */
+.backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:50;
+  display:flex;align-items:flex-end;animation:fade .15s}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.sheet{width:100%;background:var(--card);border-radius:18px 18px 0 0;
+  padding:16px 14px calc(16px + var(--safe-b));animation:up .2s cubic-bezier(.2,.8,.3,1)}
+@keyframes up{from{transform:translateY(24px)}to{transform:translateY(0)}}
+.sheet h3{margin:0 0 12px;font-size:16px;font-weight:700}
+.sheet .btn{margin-bottom:8px}
+
+/* toast */
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + var(--safe-b));
+  background:var(--fg);color:var(--bg);padding:10px 18px;border-radius:22px;font-size:13.5px;
+  font-weight:600;z-index:90;box-shadow:var(--shadow);animation:fade .15s}
+
+/* settings */
+.setrow{display:flex;align-items:center;gap:10px;padding:13px 0;border-bottom:1px solid var(--line);
+  width:100%;text-align:left}
+.setrow:last-child{border-bottom:0}
+.setrow .grow{flex:1;min-width:0}
+.setrow .t{font-size:14.5px}
+.setrow .d{font-size:12px;color:var(--dim);margin-top:2px}
+.setrow .chev{color:var(--dim);font-size:18px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+'use strict';
+/* ============================================================
+   바다가자 — 출조 포인트 기록 앱  /  1단계: 본체 + 로컬 저장
+   ============================================================ */
+
+/* ---------- 상수 ---------- */
+const SIDO = ['서울','부산','대구','인천','광주','대전','울산','세종',
+              '경기','강원','충북','충남','전북','전남','경북','경남','제주'];
+
+const DEFAULT_PRESETS = {
+  haerujil: ['낙지','주꾸미','소라','바지락','해삼','꽃게','대합','맛조개','개불','문어','가리비','굴','백합','갯가재'],
+  walking : ['농어','광어','우럭','삼치','갑오징어','무늬오징어','한치','참돔','감성돔','볼락','도다리','학꽁치','전갱이','고등어','갈치']
+};
+
+const TYPE = {
+  walking : { label:'워킹낚시', icon:'🎣' },
+  haerujil: { label:'해루질',   icon:'🔦' }
+};
+
+const MONTHS = Array.from({length:12},(_,i)=>i+1);
+
+/* ---------- 유틸 ---------- */
+const $ = s => document.querySelector(s);
+const uid = () => (Date.now().toString(36) + Math.random().toString(36).slice(2,9));
+const now = () => Date.now();
+const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const todayStr = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const nowTimeStr = () => { const d=new Date(); return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+
+function fmtDate(s){
+  if(!s) return '';
+  const [y,m,d] = s.split('-').map(Number);
+  const w = ['일','월','화','수','목','금','토'][new Date(y,m-1,d).getDay()];
+  return `${y}. ${m}. ${d}. (${w})`;
+}
+function fmtDuration(min){
+  if(min==null || isNaN(min)) return '';
+  const h = Math.floor(min/60), m = min%60;
+  return h ? (m ? `${h}시간 ${m}분` : `${h}시간`) : `${m}분`;
+}
+function diffMinutes(start,end){
+  if(!start || !end) return null;
+  const [sh,sm]=start.split(':').map(Number), [eh,em]=end.split(':').map(Number);
+  let d = (eh*60+em) - (sh*60+sm);
+  if(d < 0) d += 24*60;          // 자정 넘김
+  return d;
+}
+function relDate(s){
+  if(!s) return '';
+  const t = new Date(s+'T00:00:00').getTime();
+  const days = Math.round((new Date(todayStr()+'T00:00:00').getTime() - t)/86400000);
+  if(days === 0) return '오늘';
+  if(days === 1) return '어제';
+  if(days < 7)  return `${days}일 전`;
+  if(days < 35) return `${Math.floor(days/7)}주 전`;
+  if(days < 365)return `${Math.floor(days/30)}개월 전`;
+  return `${Math.floor(days/365)}년 전`;
+}
+function toast(msg){
+  const el = document.createElement('div');
+  el.className='toast'; el.textContent=msg;
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(), 1900);
+}
+const ICON = {
+  back:'<svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>',
+  search:'<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+  x:'<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+  plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+  gear:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.7 1.7 0 008.5 19a1.7 1.7 0 00-1.9.4l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H2a2 2 0 110-4h.1A1.7 1.7 0 004 8.5a1.7 1.7 0 00-.4-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V2a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H22a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>',
+  grid:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+  list:'<svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg>',
+  trash:'<svg viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
+  edit:'<svg viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>',
+  nav:'<svg viewBox="0 0 24 24"><path d="M3 11l19-9-9 19-2-8-8-2z"/></svg>',
+  pin:'<svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>'
+};
+
+/* ============================================================
+   IndexedDB
+   ============================================================ */
+const DB_NAME='badagaja', DB_VER=1;
+let _db = null;
+
+function openDB(){
+  return new Promise((res,rej)=>{
+    const rq = indexedDB.open(DB_NAME, DB_VER);
+    rq.onupgradeneeded = e => {
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('points')) db.createObjectStore('points',{keyPath:'id'});
+      if(!db.objectStoreNames.contains('trips')){
+        const s = db.createObjectStore('trips',{keyPath:'id'});
+        s.createIndex('pointId','pointId');
+      }
+      if(!db.objectStoreNames.contains('images')) db.createObjectStore('images',{keyPath:'id'});
+      if(!db.objectStoreNames.contains('meta'))   db.createObjectStore('meta',{keyPath:'k'});
+    };
+    rq.onsuccess = () => { _db = rq.result; res(_db); };
+    rq.onerror   = () => rej(rq.error);
+  });
+}
+function tx(store, mode='readonly'){ return _db.transaction(store, mode).objectStore(store); }
+function req(r){ return new Promise((res,rej)=>{ r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+const dbAll = s => req(tx(s).getAll());
+const dbPut = (s,v) => req(tx(s,'readwrite').put(v));
+const dbGet = (s,k) => req(tx(s).get(k));
+
+/* ============================================================
+   상태
+   ============================================================ */
+const state = {
+  points : [],
+  trips  : [],
+  presets: JSON.parse(JSON.stringify(DEFAULT_PRESETS)),
+  ui     : { tab:'all', view:'list', q:'', sort:'updated' }
+};
+
+async function loadAll(){
+  state.points = (await dbAll('points')).filter(p=>!p.deleted);
+  state.trips  = (await dbAll('trips')).filter(t=>!t.deleted);
+  const m = await dbGet('meta','presets');
+  if(m && m.v) state.presets = m.v;
+  const u = await dbGet('meta','ui');
+  if(u && u.v) Object.assign(state.ui, u.v);
+}
+const saveUI      = () => dbPut('meta',{k:'ui', v:state.ui});
+const savePresets = () => dbPut('meta',{k:'presets', v:state.presets});
+
+/* ---- 레코드 조작 (tombstone 방식) ---- */
+async function putPoint(p){
+  p.updatedAt = now(); p.synced = false;
+  await dbPut('points', p);
+  const i = state.points.findIndex(x=>x.id===p.id);
+  if(i>=0) state.points[i]=p; else state.points.push(p);
+}
+async function putTrip(t){
+  t.updatedAt = now(); t.synced = false;
+  await dbPut('trips', t);
+  const i = state.trips.findIndex(x=>x.id===t.id);
+  if(i>=0) state.trips[i]=t; else state.trips.push(t);
+}
+async function delPoint(id){
+  const p = await dbGet('points', id);
+  if(p){ p.deleted=true; p.updatedAt=now(); p.synced=false; await dbPut('points',p); }
+  for(const t of state.trips.filter(t=>t.pointId===id)){
+    t.deleted=true; t.updatedAt=now(); t.synced=false; await dbPut('trips',t);
+  }
+  state.points = state.points.filter(x=>x.id!==id);
+  state.trips  = state.trips.filter(x=>x.pointId!==id);
+}
+async function delTrip(id){
+  const t = await dbGet('trips', id);
+  if(t){ t.deleted=true; t.updatedAt=now(); t.synced=false; await dbPut('trips',t); }
+  state.trips = state.trips.filter(x=>x.id!==id);
+}
+
+/* ---- 파생 조회 ---- */
+const pointById = id => state.points.find(p=>p.id===id);
+const tripsOf   = id => state.trips.filter(t=>t.pointId===id)
+                          .sort((a,b)=> (b.date||'').localeCompare(a.date||'') || b.createdAt-a.createdAt);
+const lastTripDate = id => { const t = tripsOf(id)[0]; return t ? t.date : ''; };
+
+/** 장소 3뎁스 학습형 후보 */
+function placeCandidates(depth, sido, sigungu){
+  const set = new Set();
+  for(const p of state.points){
+    if(depth===1){ if(p.sido) set.add(p.sido); }
+    else if(depth===2){ if(p.sido===sido && p.sigungu) set.add(p.sigungu); }
+    else { if(p.sido===sido && p.sigungu===sigungu && p.placeName) set.add(p.placeName); }
+  }
+  let arr = [...set].sort((a,b)=>a.localeCompare(b,'ko'));
+  if(depth===1) arr = [...new Set([...arr, ...SIDO])];   // 시/도는 프리셋 합침
+  return arr;
+}
+
+/** 검색 대상 텍스트 (포인트 + 소속 출조기록) */
+function searchBlob(p){
+  const parts = [p.title, p.content, p.sido, p.sigungu, p.placeName];
+  (p.catches||[]).forEach(c=>parts.push(c.name, c.note));
+  (p.seasons||[]).forEach(s=>parts.push(s.text));
+  for(const t of state.trips){
+    if(t.pointId!==p.id) continue;
+    parts.push(t.memo, t.date);
+    (t.catches||[]).forEach(c=>parts.push(c.name, c.note, c.size));
+  }
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
+
+function visiblePoints(){
+  const {tab,q,sort} = state.ui;
+  let arr = state.points.slice();
+  if(tab!=='all') arr = arr.filter(p=>p.type===tab);
+  const needle = q.trim().toLowerCase();
+  if(needle){
+    const words = needle.split(/\s+/);
+    arr = arr.filter(p=>{ const b = searchBlob(p); return words.every(w=>b.includes(w)); });
+  }
+  if(sort==='updated')   arr.sort((a,b)=>b.updatedAt-a.updatedAt);
+  else if(sort==='name') arr.sort((a,b)=>(a.title||'').localeCompare(b.title||'','ko'));
+  else if(sort==='trip') arr.sort((a,b)=>(lastTripDate(b.id)||'').localeCompare(lastTripDate(a.id)||''));
+  return arr;
+}
+
+/* ============================================================
+   라우터
+   ============================================================ */
+function go(hash){ location.hash = hash; }
+/** 히스토리 항목을 남기지 않고 이동 (예: 새 포인트 저장 후 입력 폼을 대체) */
+function goReplace(hash){ location.replace(hash); }
+function back(){ history.length > 1 ? history.back() : go('#/'); }
+
+function route(){
+  const h = (location.hash || '#/').slice(1);
+  const seg = h.split('/').filter(Boolean);
+  try{
+    if(seg.length===0)                             return renderMain();
+    if(seg[0]==='settings')                        return renderSettings();
+    if(seg[0]==='p' && seg[1]==='new')             return renderPointEdit(null);
+    if(seg[0]==='p' && seg[2]==='edit')            return renderPointEdit(seg[1]);
+    if(seg[0]==='p' && seg[2]==='trip' && seg[3])  return renderTripEdit(seg[1], seg[3]==='new'?null:seg[3]);
+    if(seg[0]==='p' && seg[1])                     return renderDetail(seg[1]);
+  }catch(e){ console.error(e); }
+  renderMain();
+}
+window.addEventListener('hashchange', route);
+
+/* ============================================================
+   공통 컴포넌트
+   ============================================================ */
+
+/** 자유입력 가능한 필터형 콤보박스 */
+function attachCombo(input, getCandidates){
+  let pop = null;
+  const close = () => { if(pop){ pop.remove(); pop = null; } };
+
+  const open = () => {
+    close();
+    const typed = input.value.trim();
+    let cands = getCandidates() || [];
+    if(typed){
+      const low = typed.toLowerCase();
+      cands = cands.filter(c => c.toLowerCase().includes(low));
+    }
+    const exact = cands.some(c => c === typed);
+    if(!cands.length && !typed) return;
+    // 고를 것이 없으면(입력값과 후보가 정확히 일치하는 1건뿐) 열지 않는다.
+    // 안 그러면 드롭다운이 아래 입력칸을 덮어 다음 항목을 못 누른다.
+    if(exact && cands.length === 1) return;
+
+    pop = document.createElement('div');
+    pop.className = 'combo-pop';
+    let html = '';
+    if(typed && !exact) html += `<button type="button" class="newitem" data-v="${esc(typed)}">＋ "${esc(typed)}" 새로 추가</button>`;
+    html += cands.slice(0,60).map(c=>`<button type="button" data-v="${esc(c)}">${esc(c)}</button>`).join('');
+    if(!html) return;
+    pop.innerHTML = html;
+    pop.addEventListener('mousedown', e => e.preventDefault());
+    pop.addEventListener('click', e => {
+      const b = e.target.closest('button[data-v]');
+      if(!b) return;
+      input.value = b.dataset.v;
+      input.dispatchEvent(new Event('change',{bubbles:true}));
+      close();
+    });
+    input.parentElement.appendChild(pop);
+  };
+
+  input.addEventListener('focus', open);
+  input.addEventListener('input', open);
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  // 바깥을 누르면 즉시 닫아서, 열린 목록이 다른 조작을 가로막지 않게 한다
+  document.addEventListener('pointerdown', e => {
+    if(pop && !input.parentElement.contains(e.target)) close();
+  }, true);
+}
+
+/**
+ * 조과물 편집기
+ * @param {HTMLElement} host   컨테이너
+ * @param {Array} model        Catch[] (직접 변형됨)
+ * @param {Function} getType   () => 'walking' | 'haerujil'  (포인트 타입이 바뀌어도 따라감)
+ * @param {boolean} withQty    수량 입력 여부
+ * @returns {{refresh:Function}}
+ */
+function catchEditor(host, model, getType, withQty){
+  let showAll = false;
+
+  function render(){
+    const type  = getType();
+    const other = type==='walking' ? 'haerujil' : 'walking';
+    const presets = showAll
+      ? [...state.presets[type], ...state.presets[other].filter(x=>!state.presets[type].includes(x))]
+      : state.presets[type];
+    const chosen = new Set(model.map(c=>c.name));
+
+    let selHtml;
+    if(!model.length){
+      selHtml = `<div class="muted">아직 추가된 항목이 없습니다.</div>`;
+    } else if(withQty){
+      selHtml = model.map((c,i)=>`
+        <div class="editrow">
+          <div class="input" style="flex:1;background:var(--bg)">${esc(c.name)}</div>
+          <div class="qtybox">
+            <button type="button" data-qty="-1" data-i="${i}">−</button>
+            <span>${c.qty ?? 1}</span>
+            <button type="button" data-qty="1" data-i="${i}">＋</button>
+          </div>
+          <button type="button" class="delrow" data-del="${i}">${ICON.trash}</button>
+        </div>`).join('');
+    } else {
+      selHtml = `<div class="chips">` + model.map((c,i)=>
+        `<button type="button" class="chip sel" data-del="${i}">${esc(c.name)}<span class="x">×</span></button>`
+      ).join('') + `</div>`;
+    }
+
+    host.innerHTML = selHtml + `
+      <div class="presetbox">
+        <div class="ttl">
+          <span>자주 쓰는 항목 · ${showAll?'전체':TYPE[type].label}</span>
+          <button type="button" data-toggle>${showAll?'해당 타입만':'전체 보기'}</button>
+        </div>
+        <div class="chips">
+          ${presets.map(n=>`<button type="button" class="chip" data-add="${esc(n)}"${chosen.has(n)?' style="opacity:.35"':''}>${esc(n)}</button>`).join('')}
+        </div>
+        <div class="addrow">
+          <input class="input" placeholder="직접 입력" data-custom>
+          <button type="button" class="btn-sm" data-addcustom>추가</button>
+        </div>
+      </div>`;
+  }
+
+  function add(name){
+    name = (name||'').trim();
+    if(!name) return;
+    if(model.some(c=>c.name===name)){ toast('이미 추가된 항목입니다'); return; }
+    model.push(withQty ? {name, qty:1} : {name});
+    // 프리셋에 없는 새 이름이면 현재 타입 프리셋에 학습
+    const type = getType();
+    if(!state.presets.walking.includes(name) && !state.presets.haerujil.includes(name)){
+      state.presets[type].push(name); savePresets();
+    }
+    render();
+  }
+
+  host.addEventListener('click', e => {
+    const t = e.target;
+    if(t.closest('[data-toggle]')){ showAll=!showAll; return render(); }
+    const addBtn = t.closest('[data-add]');
+    if(addBtn) return add(addBtn.dataset.add);
+    if(t.closest('[data-addcustom]')){
+      const inp = host.querySelector('[data-custom]');
+      add(inp.value); inp.value=''; return;
+    }
+    const del = t.closest('[data-del]');
+    if(del){ model.splice(+del.dataset.del,1); return render(); }
+    const q = t.closest('[data-qty]');
+    if(q){
+      const i = +q.dataset.i;
+      model[i].qty = Math.max(0, (model[i].qty ?? 1) + (+q.dataset.qty));
+      return render();
+    }
+  });
+  host.addEventListener('keydown', e => {
+    if(e.key==='Enter' && e.target.matches('[data-custom]')){
+      e.preventDefault(); add(e.target.value); e.target.value='';
+    }
+  });
+  render();
+  return { refresh: render };
+}
+
+/** 시즌(월별/기간별) 메모 편집기 */
+function seasonEditor(host, model){
+  function render(){
+    host.innerHTML = (model.length ? model.map((s,i)=>`
+      <div class="editrow">
+        <select class="input" data-f="fromMonth" data-i="${i}">
+          ${MONTHS.map(m=>`<option value="${m}"${s.fromMonth==m?' selected':''}>${m}월</option>`).join('')}
+        </select>
+        <span class="tilde">~</span>
+        <select class="input" data-f="toMonth" data-i="${i}">
+          ${MONTHS.map(m=>`<option value="${m}"${s.toMonth==m?' selected':''}>${m}월</option>`).join('')}
+        </select>
+        <input class="input" data-f="text" data-i="${i}" value="${esc(s.text)}" placeholder="내용">
+        <button type="button" class="delrow" data-del="${i}">${ICON.trash}</button>
+      </div>`).join('') : `<div class="muted" style="margin-bottom:8px">등록된 시즌 메모가 없습니다.</div>`)
+      + `<button type="button" class="btn ghost" data-addseason style="margin-top:2px">＋ 기간 추가</button>`;
+  }
+  host.addEventListener('click', e => {
+    if(e.target.closest('[data-addseason]')){
+      const m = new Date().getMonth()+1;
+      model.push({fromMonth:m, toMonth:m, text:''}); return render();
+    }
+    const d = e.target.closest('[data-del]');
+    if(d){ model.splice(+d.dataset.del,1); return render(); }
+  });
+  host.addEventListener('input', e => {
+    const f = e.target.dataset.f;
+    if(!f) return;
+    const i = +e.target.dataset.i;
+    model[i][f] = (f==='text') ? e.target.value : +e.target.value;
+  });
+  host.addEventListener('change', e => {
+    const f = e.target.dataset.f;
+    if(!f || f==='text') return;
+    model[+e.target.dataset.i][f] = +e.target.value;
+  });
+  render();
+}
+
+/** 하단 시트 */
+function sheet(title, buttons){
+  const bd = document.createElement('div');
+  bd.className='backdrop';
+  bd.innerHTML = `<div class="sheet">
+      <h3>${esc(title)}</h3>
+      ${buttons.map((b,i)=>`<button class="btn ${b.style||'ghost'}" data-i="${i}">${esc(b.label)}</button>`).join('')}
+      <button class="btn ghost" data-close style="margin-top:4px">닫기</button>
+    </div>`;
+  bd.addEventListener('click', e=>{
+    if(e.target===bd || e.target.closest('[data-close]')) return bd.remove();
+    const b = e.target.closest('[data-i]');
+    if(b){ bd.remove(); buttons[+b.dataset.i].run(); }
+  });
+  document.body.appendChild(bd);
+}
+
+/* ============================================================
+   화면 1 — 메인
+   ============================================================ */
+function renderMain(){
+  const {tab,view,q,sort} = state.ui;
+  const items = visiblePoints();
+  const tabs = [['all','모두보기'],['walking','워킹낚시'],['haerujil','해루질']];
+
+  $('#app').innerHTML = `
+  <div class="screen">
+    <div class="topbar">
+      <div class="topbar-row">
+        <h1>바다가자</h1>
+        <button class="iconbtn" data-view title="보기 전환">${view==='list'?ICON.grid:ICON.list}</button>
+        <button class="iconbtn" data-settings title="설정">${ICON.gear}</button>
+      </div>
+      <div class="seg" style="margin-top:10px">
+        ${tabs.map(([k,l])=>`<button data-tab="${k}" aria-pressed="${tab===k}">${l}</button>`).join('')}
+      </div>
+      <div class="searchwrap">
+        ${ICON.search}
+        <input class="search" placeholder="제목·메모·조과물 검색" value="${esc(q)}" data-q>
+        ${q?`<button class="clearbtn" data-clearq>${ICON.x}</button>`:''}
+      </div>
+      <div class="toolrow">
+        <span class="count">${items.length}곳${q?' 검색됨':''}</span>
+        <select class="minisel" data-sort>
+          <option value="updated"${sort==='updated'?' selected':''}>최근 수정순</option>
+          <option value="trip"${sort==='trip'?' selected':''}>최근 출조순</option>
+          <option value="name"${sort==='name'?' selected':''}>이름순</option>
+        </select>
+      </div>
+    </div>
+    <div class="body">${items.length ? (view==='list'?listHtml(items):gridHtml(items)) : emptyHtml(q)}</div>
+    <button class="fab" data-new>${ICON.plus} 포인트</button>
+  </div>`;
+
+  const app = $('#app');
+  app.querySelector('[data-view]').onclick = () => { state.ui.view = view==='list'?'grid':'list'; saveUI(); renderMain(); };
+  app.querySelector('[data-settings]').onclick = () => go('#/settings');
+  app.querySelector('[data-new]').onclick = () => go('#/p/new');
+  app.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+    state.ui.tab = b.dataset.tab; saveUI(); renderMain();
+  });
+  app.querySelector('[data-sort]').onchange = e => { state.ui.sort = e.target.value; saveUI(); renderMain(); };
+
+  const qi = app.querySelector('[data-q]');
+  let timer;
+  qi.addEventListener('input', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      state.ui.q = qi.value;
+      const pos = qi.selectionStart;
+      renderMain();
+      const nq = $('[data-q]'); nq.focus(); nq.setSelectionRange(pos,pos);
+    }, 180);
+  });
+  const cb = app.querySelector('[data-clearq]');
+  if(cb) cb.onclick = () => { state.ui.q=''; renderMain(); };
+
+  app.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('#/p/'+b.dataset.open));
+}
+
+function locLine(p){
+  return [p.sido,p.sigungu,p.placeName].filter(Boolean).join(' › ') || '장소 미지정';
+}
+function tripMeta(p){
+  const n = tripsOf(p.id).length;
+  const last = lastTripDate(p.id);
+  const bits = [];
+  if(n) bits.push(`출조 ${n}회`);
+  if(last) bits.push(relDate(last));
+  return bits.join(' · ');
+}
+function listHtml(items){
+  return `<div class="list">` + items.map(p=>`
+    <button class="item" data-open="${p.id}">
+      <div class="thumb ${p.type}">${TYPE[p.type].icon}</div>
+      <div class="itembody">
+        <div class="itemtitle">${esc(p.title||'(제목 없음)')}</div>
+        <div class="itemloc">${esc(locLine(p))}</div>
+        <div class="itemmeta">
+          <span class="badge ${p.type}">${TYPE[p.type].label}</span>
+          <span class="sub">${esc(tripMeta(p))}</span>
+        </div>
+      </div>
+    </button>`).join('') + `</div>`;
+}
+function gridHtml(items){
+  return `<div class="grid">` + items.map(p=>`
+    <button class="card" data-open="${p.id}">
+      <div class="ph ${p.type}">${TYPE[p.type].icon}</div>
+      <div class="cb">
+        <div class="itemtitle">${esc(p.title||'(제목 없음)')}</div>
+        <div class="itemloc">${esc(locLine(p))}</div>
+        <div class="itemmeta"><span class="badge ${p.type}">${TYPE[p.type].label}</span></div>
+      </div>
+    </button>`).join('') + `</div>`;
+}
+function emptyHtml(q){
+  return q
+    ? `<div class="empty"><div class="big">🔍</div><p><b>검색 결과가 없습니다</b></p><p>제목·메모·조과물 이름으로 찾습니다.</p></div>`
+    : `<div class="empty"><div class="big">🌊</div><p><b>아직 등록한 포인트가 없습니다</b></p><p>오른쪽 아래 버튼으로 첫 포인트를 추가해 보세요.</p></div>`;
+}
+
+/* ============================================================
+   화면 2 — 포인트 상세
+   ============================================================ */
+function renderDetail(id){
+  const p = pointById(id);
+  if(!p) return go('#/');
+  const trips = tripsOf(id);
+
+  // 출조 기록에서 누적 조과 집계
+  const tally = {};
+  for(const t of trips) for(const c of (t.catches||[])) tally[c.name] = (tally[c.name]||0) + (c.qty ?? 1);
+  const tallyArr = Object.entries(tally).sort((a,b)=>b[1]-a[1]);
+
+  $('#app').innerHTML = `
+  <div class="screen">
+    <div class="topbar"><div class="topbar-row">
+      <button class="iconbtn" data-back>${ICON.back}</button>
+      <h1>포인트</h1>
+      <button class="iconbtn" data-edit>${ICON.edit}</button>
+      <button class="iconbtn" data-del>${ICON.trash}</button>
+    </div></div>
+    <div class="body">
+      <div class="dhead">
+        <span class="badge ${p.type}">${TYPE[p.type].label}</span>
+        <h1>${esc(p.title||'(제목 없음)')}</h1>
+        <div class="dloc">${esc(locLine(p))}</div>
+        <div class="btnrow">
+          <button class="btn${p.lat==null?' ghost':''}" data-nav${p.lat==null?' disabled style="opacity:.45"':''}>${ICON.nav} 길찾기</button>
+          <button class="btn ghost" data-newtrip>${ICON.plus} 출조 기록</button>
+        </div>
+        ${p.lat!=null?`<div class="hint" style="margin-top:9px">📍 ${p.lat.toFixed(6)}, ${p.lng.toFixed(6)}</div>`:''}
+      </div>
+
+      ${p.content?`<div class="section"><h2>메모</h2><div class="kv">${esc(p.content)}</div></div>`:''}
+
+      ${(p.catches||[]).length?`<div class="section"><h2>이 포인트에서 나오는 것</h2>
+        <div class="chips">${p.catches.map(c=>`<span class="chip">${esc(c.name)}</span>`).join('')}</div>
+      </div>`:''}
+
+      ${(p.seasons||[]).length?`<div class="section"><h2>시즌 메모</h2>
+        ${p.seasons.map(s=>`<div style="display:flex;gap:9px;padding:5px 0">
+          <span class="badge" style="background:var(--bg);color:var(--dim);flex:none">${s.fromMonth}~${s.toMonth}월</span>
+          <span style="font-size:14px">${esc(s.text)}</span></div>`).join('')}
+      </div>`:''}
+
+      ${tallyArr.length?`<div class="section"><h2>누적 조과 (출조 ${trips.length}회)</h2>
+        <div class="chips">${tallyArr.map(([n,q])=>`<span class="chip">${esc(n)} <b>${q}</b></span>`).join('')}</div>
+      </div>`:''}
+
+      <div class="section">
+        <h2><span class="grow">출조 기록 ${trips.length?`(${trips.length})`:''}</span>
+          <button data-newtrip2>＋ 추가</button></h2>
+        ${trips.length ? trips.map(t=>`
+          <button class="trip" data-trip="${t.id}">
+            <div class="tripdate">${fmtDate(t.date)} <span class="sub">· ${relDate(t.date)}</span></div>
+            ${(t.startTime||t.endTime)?`<div class="triptime">${esc(t.startTime||'')} ~ ${esc(t.endTime||'')}${t.duration!=null?` · ${fmtDuration(t.duration)}`:''}</div>`:''}
+            ${(t.catches||[]).length?`<div class="tripcatch">${t.catches.map(c=>esc(c.name)+(c.qty!=null?` ${c.qty}`:'')).join(' · ')}</div>`:`<div class="tripcatch muted">조과 없음</div>`}
+            ${t.memo?`<div class="tripmemo">${esc(t.memo)}</div>`:''}
+          </button>`).join('') : `<div class="muted">아직 기록이 없습니다.</div>`}
+      </div>
+    </div>
+  </div>`;
+
+  const app = $('#app');
+  app.querySelector('[data-back]').onclick = back;
+  app.querySelector('[data-edit]').onclick = () => go(`#/p/${id}/edit`);
+  app.querySelector('[data-del]').onclick  = async () => {
+    if(!confirm(`"${p.title}" 포인트와 출조 기록 ${trips.length}건을 모두 삭제할까요?`)) return;
+    await delPoint(id); toast('삭제했습니다'); go('#/');
+  };
+  app.querySelectorAll('[data-newtrip],[data-newtrip2]').forEach(b=>{
+    if(b.disabled) return;
+    b.onclick = () => go(`#/p/${id}/trip/new`);
+  });
+  const nav = app.querySelector('[data-nav]');
+  if(p.lat!=null) nav.onclick = () => navSheet(p);
+  app.querySelectorAll('[data-trip]').forEach(b => b.onclick = () => go(`#/p/${id}/trip/${b.dataset.trip}`));
+}
+
+/** 외부 지도앱 길찾기 */
+function navSheet(p){
+  const lat = p.lat, lng = p.lng, name = encodeURIComponent(p.title||'목적지');
+  const openScheme = (scheme, web) => {
+    const t0 = Date.now();
+    location.href = scheme;
+    setTimeout(() => { if(Date.now()-t0 < 2200 && !document.hidden) location.href = web; }, 1400);
+  };
+  sheet('길찾기 앱 선택', [
+    { label:'네이버지도', run:() => openScheme(
+        `nmap://route/car?dlat=${lat}&dlng=${lng}&dname=${name}&appname=badagaja.app`,
+        `https://map.naver.com/p/directions/-/${lng},${lat},${name}/-/car`) },
+    { label:'카카오맵', run:() => openScheme(
+        `kakaomap://route?ep=${lat},${lng}&by=CAR`,
+        `https://map.kakao.com/link/to/${decodeURIComponent(name)},${lat},${lng}`) },
+    { label:'구글지도', style:'', run:() =>
+        location.href = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}` },
+    { label:'좌표 복사', run:() => {
+        navigator.clipboard?.writeText(`${lat}, ${lng}`).then(()=>toast('좌표를 복사했습니다'),
+          ()=>toast('복사에 실패했습니다')); } }
+  ]);
+}
+
+/* ============================================================
+   화면 3 — 포인트 편집
+   ============================================================ */
+function renderPointEdit(id){
+  const isNew = !id;
+  const src = isNew ? null : pointById(id);
+  if(!isNew && !src) return go('#/');
+
+  const m = isNew
+    ? { id:uid(), type:'walking', sido:'', sigungu:'', placeName:'', title:'', content:'',
+        lat:null, lng:null, catches:[], seasons:[], images:[], thumbnailId:null,
+        createdAt:now(), updatedAt:now(), deleted:false, synced:false }
+    : JSON.parse(JSON.stringify(src));
+
+  $('#app').innerHTML = `
+  <div class="screen">
+    <div class="topbar"><div class="topbar-row">
+      <button class="iconbtn" data-back>${ICON.back}</button>
+      <h1>${isNew?'새 포인트':'포인트 수정'}</h1>
+      <button class="btn-sm" data-save style="height:34px;display:flex;align-items:center">저장</button>
+    </div></div>
+    <div class="body">
+
+      <div class="field">
+        <label class="label">종류 <span class="req">*</span></label>
+        <div class="seg">
+          <button type="button" data-type="walking"  aria-pressed="${m.type==='walking'}">🎣 워킹낚시</button>
+          <button type="button" data-type="haerujil" aria-pressed="${m.type==='haerujil'}">🔦 해루질</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="label">장소 <span class="req">*</span></label>
+        <div class="combo" style="margin-bottom:7px">
+          <input class="input" data-f="sido" placeholder="시 / 도" value="${esc(m.sido)}" autocomplete="off">
+        </div>
+        <div class="combo" style="margin-bottom:7px">
+          <input class="input" data-f="sigungu" placeholder="구 / 군" value="${esc(m.sigungu)}" autocomplete="off">
+        </div>
+        <div class="combo">
+          <input class="input" data-f="placeName" placeholder="장소명" value="${esc(m.placeName)}" autocomplete="off">
+        </div>
+        <div class="hint">입력하면 기존 항목이 걸러지고, 목록에 없으면 그대로 새로 등록됩니다.</div>
+      </div>
+
+      <div class="field">
+        <label class="label">제목 <span class="req">*</span></label>
+        <input class="input" data-f="title" placeholder="예) 방파제 끝 테트라" value="${esc(m.title)}">
+      </div>
+
+      <div class="field">
+        <label class="label">내용</label>
+        <textarea class="input" data-f="content" placeholder="진입로, 주차, 물때, 주의사항 등">${esc(m.content)}</textarea>
+      </div>
+
+      <div class="field">
+        <label class="label">위치 좌표</label>
+        <div class="row2" style="margin-bottom:7px">
+          <input class="input" data-f="lat" inputmode="decimal" placeholder="위도" value="${m.lat??''}">
+          <input class="input" data-f="lng" inputmode="decimal" placeholder="경도" value="${m.lng??''}">
+        </div>
+        <div class="row2">
+          <button type="button" class="btn ghost" data-gps>${ICON.pin} 현재 위치</button>
+          <button type="button" class="btn ghost" data-paste>붙여넣기</button>
+        </div>
+        <div class="hint">지도앱에서 복사한 좌표를 붙여넣으면 자동으로 분리됩니다.</div>
+      </div>
+
+      <div class="field">
+        <label class="label">이 포인트에서 나오는 것</label>
+        <div data-catches></div>
+      </div>
+
+      <div class="field">
+        <label class="label">시즌 메모 (월별 / 기간별)</label>
+        <div data-seasons></div>
+      </div>
+
+      ${isNew?'':`<button class="btn danger" data-del style="margin-top:8px">${ICON.trash} 이 포인트 삭제</button>`}
+    </div>
+  </div>`;
+
+  const app = $('#app');
+  const get = f => app.querySelector(`[data-f="${f}"]`);
+
+  // 타입 선택
+  app.querySelectorAll('[data-type]').forEach(b => b.onclick = () => {
+    m.type = b.dataset.type;
+    app.querySelectorAll('[data-type]').forEach(x => x.setAttribute('aria-pressed', x.dataset.type===m.type));
+    ce.refresh();   // 타입별 프리셋 갱신
+  });
+
+  // 3뎁스 콤보
+  attachCombo(get('sido'),      () => placeCandidates(1));
+  attachCombo(get('sigungu'),   () => placeCandidates(2, get('sido').value.trim()));
+  attachCombo(get('placeName'), () => placeCandidates(3, get('sido').value.trim(), get('sigungu').value.trim()));
+
+  // 좌표 도우미
+  app.querySelector('[data-gps]').onclick = () => {
+    if(!navigator.geolocation) return toast('이 기기에서 위치를 쓸 수 없습니다');
+    toast('위치 확인 중…');
+    navigator.geolocation.getCurrentPosition(
+      pos => { get('lat').value = pos.coords.latitude.toFixed(6);
+               get('lng').value = pos.coords.longitude.toFixed(6);
+               toast('현재 위치를 넣었습니다'); },
+      err => toast('위치를 가져오지 못했습니다 (' + err.code + ')'),
+      {enableHighAccuracy:true, timeout:12000, maximumAge:0});
+  };
+  app.querySelector('[data-paste]').onclick = async () => {
+    let txt = '';
+    try { txt = await navigator.clipboard.readText(); }
+    catch { txt = prompt('좌표를 붙여넣으세요') || ''; }
+    const c = parseCoords(txt);
+    if(!c) return toast('좌표를 인식하지 못했습니다');
+    get('lat').value = c.lat.toFixed(6); get('lng').value = c.lng.toFixed(6);
+    toast('좌표를 넣었습니다');
+  };
+
+  // 하위 편집기
+  const catchHost = app.querySelector('[data-catches]');
+  const ce = catchEditor(catchHost, m.catches, () => m.type, false);
+  seasonEditor(app.querySelector('[data-seasons]'), m.seasons);
+
+  app.querySelector('[data-back]').onclick = back;
+  app.querySelector('[data-save]').onclick = async () => {
+    m.sido      = get('sido').value.trim();
+    m.sigungu   = get('sigungu').value.trim();
+    m.placeName = get('placeName').value.trim();
+    m.title     = get('title').value.trim();
+    m.content   = get('content').value;
+    const la = parseFloat(get('lat').value), ln = parseFloat(get('lng').value);
+    m.lat = isFinite(la) ? la : null;
+    m.lng = isFinite(ln) ? ln : null;
+    if(m.lat==null || m.lng==null){ m.lat=null; m.lng=null; }
+    m.seasons = m.seasons.filter(s => (s.text||'').trim());
+
+    if(!m.title)     return toast('제목을 입력해 주세요');
+    if(!m.sido && !m.placeName) return toast('장소를 입력해 주세요');
+
+    await putPoint(m);
+    toast('저장했습니다');
+    // 새 포인트는 입력 폼 히스토리를 대체해야 상세에서 뒤로가기가 목록으로 간다
+    isNew ? goReplace('#/p/'+m.id) : back();
+  };
+  const db = app.querySelector('[data-del]');
+  if(db) db.onclick = async () => {
+    if(!confirm('이 포인트와 소속 출조 기록을 모두 삭제할까요?')) return;
+    await delPoint(m.id); toast('삭제했습니다'); go('#/');
+  };
+}
+
+/** 좌표 문자열 파싱 — 십진수 / 도분초 */
+function parseCoords(txt){
+  if(!txt) return null;
+  const dms = /(\d{1,3})[°\s]+(\d{1,2})['′\s]+([\d.]+)["″\s]*([NSEW北南东西]?)/gi;
+  const found = [...txt.matchAll(dms)];
+  if(found.length >= 2){
+    const v = found.slice(0,2).map(f => {
+      let d = (+f[1]) + (+f[2])/60 + (+f[3])/3600;
+      if(/[SW]/i.test(f[4]||'')) d = -d;
+      return d;
+    });
+    return {lat:v[0], lng:v[1]};
+  }
+  const dec = txt.match(/(-?\d{1,3}\.\d+)\D+(-?\d{1,3}\.\d+)/);
+  if(dec){
+    let a = parseFloat(dec[1]), b = parseFloat(dec[2]);
+    if(Math.abs(a) > 90 && Math.abs(b) <= 90) [a,b] = [b,a];   // 순서 뒤바뀐 경우
+    if(Math.abs(a) <= 90 && Math.abs(b) <= 180) return {lat:a, lng:b};
+  }
+  return null;
+}
+
+/* ============================================================
+   화면 4 — 출조 기록 편집
+   ============================================================ */
+function renderTripEdit(pointId, tripId){
+  const p = pointById(pointId);
+  if(!p) return go('#/');
+  const isNew = !tripId;
+  const src = isNew ? null : state.trips.find(t=>t.id===tripId);
+  if(!isNew && !src) return go('#/p/'+pointId);
+
+  const m = isNew
+    ? { id:uid(), pointId, date:todayStr(), startTime:'', endTime:'', duration:null,
+        catches:[], memo:'', images:[], createdAt:now(), updatedAt:now(), deleted:false, synced:false }
+    : JSON.parse(JSON.stringify(src));
+
+  $('#app').innerHTML = `
+  <div class="screen">
+    <div class="topbar"><div class="topbar-row">
+      <button class="iconbtn" data-back>${ICON.back}</button>
+      <h1>${isNew?'새 출조 기록':'출조 기록 수정'}</h1>
+      <button class="btn-sm" data-save style="height:34px;display:flex;align-items:center">저장</button>
+    </div></div>
+    <div class="body">
+      <div class="section" style="padding:12px 14px">
+        <div class="sub">${esc(locLine(p))}</div>
+        <div style="font-weight:650;margin-top:2px">${esc(p.title)}</div>
+      </div>
+
+      <div class="field">
+        <label class="label">날짜 <span class="req">*</span></label>
+        <input type="date" class="input" data-f="date" value="${esc(m.date)}">
+      </div>
+
+      <div class="field">
+        <label class="label">실제 조업 시간</label>
+        <div class="row2" style="margin-bottom:7px">
+          <div>
+            <input type="time" class="input" data-f="startTime" value="${esc(m.startTime)}">
+            <button type="button" class="btn ghost" data-nowbtn="startTime" style="margin-top:6px;padding:7px">지금</button>
+          </div>
+          <div>
+            <input type="time" class="input" data-f="endTime" value="${esc(m.endTime)}">
+            <button type="button" class="btn ghost" data-nowbtn="endTime" style="margin-top:6px;padding:7px">지금</button>
+          </div>
+        </div>
+        <div class="hint" data-dur>${m.duration!=null?'소요 '+fmtDuration(m.duration):'시작·종료를 넣으면 소요 시간이 자동 계산됩니다.'}</div>
+      </div>
+
+      <div class="field">
+        <label class="label">조과물</label>
+        <div data-catches></div>
+      </div>
+
+      <div class="field">
+        <label class="label">메모</label>
+        <textarea class="input" data-f="memo" placeholder="물때, 날씨, 사용한 채비 등">${esc(m.memo)}</textarea>
+      </div>
+
+      ${isNew?'':`<button class="btn danger" data-del style="margin-top:8px">${ICON.trash} 이 기록 삭제</button>`}
+    </div>
+  </div>`;
+
+  const app = $('#app');
+  const get = f => app.querySelector(`[data-f="${f}"]`);
+  const durEl = app.querySelector('[data-dur]');
+
+  function refreshDur(){
+    const d = diffMinutes(get('startTime').value, get('endTime').value);
+    durEl.textContent = d!=null ? `소요 ${fmtDuration(d)}` : '시작·종료를 넣으면 소요 시간이 자동 계산됩니다.';
+  }
+  ['startTime','endTime'].forEach(f => get(f).addEventListener('change', refreshDur));
+  app.querySelectorAll('[data-nowbtn]').forEach(b => b.onclick = () => {
+    get(b.dataset.nowbtn).value = nowTimeStr(); refreshDur();
+  });
+
+  catchEditor(app.querySelector('[data-catches]'), m.catches, () => p.type, true);
+
+  app.querySelector('[data-back]').onclick = back;
+  app.querySelector('[data-save]').onclick = async () => {
+    m.date      = get('date').value;
+    m.startTime = get('startTime').value;
+    m.endTime   = get('endTime').value;
+    m.duration  = diffMinutes(m.startTime, m.endTime);
+    m.memo      = get('memo').value;
+    if(!m.date) return toast('날짜를 선택해 주세요');
+    await putTrip(m);
+    toast('저장했습니다');
+    back();
+  };
+  const db = app.querySelector('[data-del]');
+  if(db) db.onclick = async () => {
+    if(!confirm('이 출조 기록을 삭제할까요?')) return;
+    await delTrip(m.id); toast('삭제했습니다'); go('#/p/'+pointId);
+  };
+}
+
+/* ============================================================
+   화면 5 — 설정
+   ============================================================ */
+function renderSettings(){
+  const unsynced = state.points.filter(p=>!p.synced).length + state.trips.filter(t=>!t.synced).length;
+
+  $('#app').innerHTML = `
+  <div class="screen">
+    <div class="topbar"><div class="topbar-row">
+      <button class="iconbtn" data-back>${ICON.back}</button>
+      <h1>설정</h1>
+    </div></div>
+    <div class="body">
+      <div class="section">
+        <h2>데이터</h2>
+        <div class="setrow"><div class="grow"><div class="t">포인트</div></div><div class="t">${state.points.length}곳</div></div>
+        <div class="setrow"><div class="grow"><div class="t">출조 기록</div></div><div class="t">${state.trips.length}건</div></div>
+        <div class="setrow"><div class="grow"><div class="t">미동기화</div>
+          <div class="d">클라우드 동기화는 4단계에서 붙습니다</div></div><div class="t">${unsynced}건</div></div>
+      </div>
+
+      <div class="section">
+        <h2>백업</h2>
+        <button class="setrow" data-export><div class="grow"><div class="t">JSON 내보내기</div>
+          <div class="d">전체 데이터를 파일로 저장</div></div><span class="chev">›</span></button>
+        <button class="setrow" data-import><div class="grow"><div class="t">JSON 가져오기</div>
+          <div class="d">기존 데이터에 합쳐집니다</div></div><span class="chev">›</span></button>
+        <input type="file" accept="application/json,.json" data-file hidden>
+      </div>
+
+      <div class="section">
+        <h2>조과물 프리셋</h2>
+        ${['walking','haerujil'].map(t=>`
+          <div style="margin-bottom:12px">
+            <div class="ttl" style="font-size:12px;color:var(--dim);margin-bottom:7px">${TYPE[t].icon} ${TYPE[t].label}</div>
+            <div class="chips">${state.presets[t].map((n,i)=>
+              `<button class="chip" data-rmpreset="${t}:${i}">${esc(n)}<span class="x">×</span></button>`).join('')}</div>
+            <div class="addrow">
+              <input class="input" placeholder="항목 추가" data-newpreset="${t}">
+              <button class="btn-sm" data-addpreset="${t}">추가</button>
+            </div>
+          </div>`).join('')}
+        <button class="btn ghost" data-resetpreset>기본값으로 되돌리기</button>
+      </div>
+
+      <div class="section">
+        <h2>정보</h2>
+        <div class="setrow"><div class="grow"><div class="t">바다가자</div>
+          <div class="d">v0.1 · 1단계 (로컬 저장)</div></div></div>
+      </div>
+    </div>
+  </div>`;
+
+  const app = $('#app');
+  app.querySelector('[data-back]').onclick = back;
+
+  app.querySelector('[data-export]').onclick = () => {
+    const data = { app:'badagaja', version:1, exportedAt:new Date().toISOString(),
+                   points:state.points, trips:state.trips, presets:state.presets };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `badagaja-${todayStr()}.json`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    toast('내보냈습니다');
+  };
+
+  const file = app.querySelector('[data-file]');
+  app.querySelector('[data-import]').onclick = () => file.click();
+  file.onchange = async () => {
+    const f = file.files[0]; if(!f) return;
+    try{
+      const data = JSON.parse(await f.text());
+      if(data.app !== 'badagaja') throw new Error('형식이 다릅니다');
+      let n = 0;
+      for(const p of (data.points||[])){ await dbPut('points', p); n++; }
+      for(const t of (data.trips ||[])){ await dbPut('trips',  t); n++; }
+      if(data.presets){ state.presets = data.presets; await savePresets(); }
+      await loadAll();
+      toast(`${n}건을 가져왔습니다`);
+      renderSettings();
+    }catch(e){ toast('가져오기 실패: ' + e.message); }
+    file.value = '';
+  };
+
+  app.querySelectorAll('[data-rmpreset]').forEach(b => b.onclick = async () => {
+    const [t,i] = b.dataset.rmpreset.split(':');
+    state.presets[t].splice(+i,1); await savePresets(); renderSettings();
+  });
+  app.querySelectorAll('[data-addpreset]').forEach(b => b.onclick = async () => {
+    const t = b.dataset.addpreset;
+    const inp = app.querySelector(`[data-newpreset="${t}"]`);
+    const v = inp.value.trim();
+    if(!v) return;
+    if(state.presets[t].includes(v)) return toast('이미 있습니다');
+    state.presets[t].push(v); await savePresets(); renderSettings();
+  });
+  app.querySelector('[data-resetpreset]').onclick = async () => {
+    if(!confirm('프리셋을 기본값으로 되돌릴까요? 직접 추가한 항목은 사라집니다.')) return;
+    state.presets = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
+    await savePresets(); renderSettings();
+  };
+}
+
+/* ============================================================
+   시작
+   ============================================================ */
+(async function init(){
+  try{
+    await openDB();
+    await loadAll();
+  }catch(e){
+    $('#app').innerHTML = `<div class="empty"><div class="big">⚠️</div>
+      <p><b>저장소를 열 수 없습니다</b></p><p>${esc(e.message||e)}</p>
+      <p class="hint">시크릿 모드에서는 동작하지 않을 수 있습니다.</p></div>`;
+    return;
+  }
+  route();
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  }
+})();
+</script>
+</body>
+</html>
