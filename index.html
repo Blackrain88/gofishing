@@ -168,6 +168,9 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
   background:var(--bg);border:1px solid var(--line);font-size:13.5px}
 .chip.sel{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
 .chip .x{font-size:15px;line-height:1;opacity:.75;margin-left:1px}
+.seasoncard{border:1px solid var(--line);border-radius:12px;padding:10px 11px;margin-bottom:8px;background:var(--bg)}
+.seasoncard .presetbox{background:var(--card);border-style:solid}
+.chip.addchip{border-style:dashed;color:var(--accent);font-weight:650}
 .presetbox{margin-top:9px;padding:10px;border:1px dashed var(--line);border-radius:11px;background:var(--bg)}
 .presetbox .ttl{font-size:11.5px;color:var(--dim);margin-bottom:7px;display:flex;align-items:center;gap:8px}
 .presetbox .ttl button{font-size:11.5px;color:var(--accent);font-weight:650}
@@ -262,6 +265,8 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
    ============================================================ */
 
 /* ---------- 상수 ---------- */
+const APP_VERSION = 'v9';   // sw.js 의 VERSION 과 함께 올린다
+
 const SIDO = ['서울','부산','대구','인천','광주','대전','울산','세종',
               '경기','강원','충북','충남','전북','전남','경북','경남','제주'];
 
@@ -436,7 +441,7 @@ function placeCandidates(depth, sido, sigungu){
 function searchBlob(p){
   const parts = [p.title, p.content, p.sido, p.sigungu, p.placeName];
   (p.catches||[]).forEach(c=>parts.push(c.name, c.note));
-  (p.seasons||[]).forEach(s=>parts.push(s.text));
+  (p.seasons||[]).forEach(s=>parts.push(...seasonItems(s)));
   for(const t of state.trips){
     if(t.pointId!==p.id) continue;
     parts.push(t.memo, t.date);
@@ -645,43 +650,122 @@ function catchEditor(host, model, getType, withQty){
   return { refresh: render };
 }
 
-/** 시즌(월별/기간별) 메모 편집기 */
-function seasonEditor(host, model){
-  function render(){
-    host.innerHTML = (model.length ? model.map((s,i)=>`
-      <div class="editrow">
-        <select class="input" data-f="fromMonth" data-i="${i}">
-          ${MONTHS.map(m=>`<option value="${m}"${s.fromMonth==m?' selected':''}>${m}월</option>`).join('')}
-        </select>
-        <span class="tilde">~</span>
-        <select class="input" data-f="toMonth" data-i="${i}">
-          ${MONTHS.map(m=>`<option value="${m}"${s.toMonth==m?' selected':''}>${m}월</option>`).join('')}
-        </select>
-        <input class="input" data-f="text" data-i="${i}" value="${esc(s.text)}" placeholder="내용">
-        <button type="button" class="delrow" data-del="${i}">${ICON.trash}</button>
-      </div>`).join('') : `<div class="muted" style="margin-bottom:8px">등록된 시즌 메모가 없습니다.</div>`)
-      + `<button type="button" class="btn ghost" data-addseason style="margin-top:2px">＋ 기간 추가</button>`;
+/** 시즌 메모의 항목 목록 — 옛 버전의 text 도 항목 하나로 취급한다 */
+function seasonItems(s){
+  if(Array.isArray(s.items)) return s.items;
+  return (s.text||'').trim() ? [s.text.trim()] : [];
+}
+
+/**
+ * 시즌(월별/기간별) 메모 편집기 — 조과물처럼 프리셋 칩 + 직접 입력으로 고른다.
+ * @param {Function} getType () => 'walking' | 'haerujil'
+ * @returns {{refresh:Function}}
+ */
+function seasonEditor(host, model, getType){
+  let openIdx = -1, showAll = false;
+
+  function monthSel(field, i, val){
+    return `<select class="input" data-sf="${field}" data-i="${i}">${
+      MONTHS.map(m=>`<option value="${m}"${val==m?' selected':''}>${m}월</option>`).join('')}</select>`;
   }
-  host.addEventListener('click', e => {
-    if(e.target.closest('[data-addseason]')){
-      const m = new Date().getMonth()+1;
-      model.push({fromMonth:m, toMonth:m, text:''}); return render();
+  function boxHtml(type, chosen, i){
+    const other = type==='walking' ? 'haerujil' : 'walking';
+    const presets = showAll
+      ? [...state.presets[type], ...state.presets[other].filter(x=>!state.presets[type].includes(x))]
+      : state.presets[type];
+    return `<div class="presetbox">
+      <div class="ttl">
+        <span>자주 쓰는 항목 · ${showAll?'전체':TYPE[type].label}</span>
+        <button type="button" data-stoggle>${showAll?'해당 타입만':'전체 보기'}</button>
+      </div>
+      <div class="chips">${presets.map(n=>
+        `<button type="button" class="chip" data-sadd="${i}|${esc(n)}"${chosen.has(n)?' style="opacity:.35"':''}>${esc(n)}</button>`
+      ).join('')}</div>
+      <div class="addrow">
+        <input class="input" placeholder="직접 입력" data-scustom="${i}">
+        <button type="button" class="btn-sm" data-saddcustom="${i}">추가</button>
+      </div>
+    </div>`;
+  }
+
+  function render(){
+    // 옛 형식(text) 을 항목 배열로 옮긴다
+    model.forEach(s => { if(!Array.isArray(s.items)){ s.items = seasonItems(s); delete s.text; } });
+    const type = getType();
+
+    host.innerHTML = (model.length ? model.map((s,i)=>`
+      <div class="seasoncard">
+        <div class="editrow" style="margin-bottom:8px">
+          ${monthSel('fromMonth', i, s.fromMonth)}
+          <span class="tilde">~</span>
+          ${monthSel('toMonth', i, s.toMonth)}
+          <span style="flex:1"></span>
+          <button type="button" class="delrow" data-sdel="${i}">${ICON.trash}</button>
+        </div>
+        <div class="chips">
+          ${s.items.map((n,j)=>`<button type="button" class="chip sel" data-srm="${i}.${j}">${esc(n)}<span class="x">×</span></button>`).join('')}
+          <button type="button" class="chip addchip" data-sopen="${i}">${openIdx===i?'닫기':'＋ 항목'}</button>
+        </div>
+        ${openIdx===i ? boxHtml(type, new Set(s.items), i) : ''}
+      </div>`).join('')
+      : `<div class="muted" style="margin-bottom:8px">등록된 시즌 메모가 없습니다.</div>`)
+      + `<button type="button" class="btn ghost" data-addseason style="width:100%">＋ 기간 추가</button>`;
+  }
+
+  function add(i, name){
+    name = (name||'').trim();
+    if(!name) return;
+    if(model[i].items.includes(name)){ toast('이미 추가된 항목입니다'); return; }
+    model[i].items.push(name);
+    const type = getType();
+    if(!state.presets.walking.includes(name) && !state.presets.haerujil.includes(name)){
+      state.presets[type].push(name); savePresets();
     }
-    const d = e.target.closest('[data-del]');
-    if(d){ model.splice(+d.dataset.del,1); return render(); }
+    render();
+  }
+
+  host.addEventListener('click', e => {
+    const t = e.target;
+    if(t.closest('[data-addseason]')){
+      const mo = new Date().getMonth()+1;
+      model.push({fromMonth:mo, toMonth:mo, items:[]});
+      openIdx = model.length - 1;            // 새로 만든 기간은 바로 고를 수 있게 펼친다
+      return render();
+    }
+    const del = t.closest('[data-sdel]');
+    if(del){ model.splice(+del.dataset.sdel,1); openIdx = -1; return render(); }
+
+    const open = t.closest('[data-sopen]');
+    if(open){ const i = +open.dataset.sopen; openIdx = (openIdx===i ? -1 : i); return render(); }
+
+    const rm = t.closest('[data-srm]');
+    if(rm){ const [i,j] = rm.dataset.srm.split('.').map(Number); model[i].items.splice(j,1); return render(); }
+
+    if(t.closest('[data-stoggle]')){ showAll = !showAll; return render(); }
+
+    const ad = t.closest('[data-sadd]');
+    if(ad){ const [i,name] = ad.dataset.sadd.split('|'); return add(+i, name); }
+
+    const ac = t.closest('[data-saddcustom]');
+    if(ac){
+      const i = ac.dataset.saddcustom;
+      const inp = host.querySelector(`[data-scustom="${i}"]`);
+      add(+i, inp.value); inp.value = ''; return;
+    }
   });
-  host.addEventListener('input', e => {
-    const f = e.target.dataset.f;
-    if(!f) return;
-    const i = +e.target.dataset.i;
-    model[i][f] = (f==='text') ? e.target.value : +e.target.value;
+  host.addEventListener('keydown', e => {
+    if(e.key==='Enter' && e.target.dataset.scustom !== undefined){
+      e.preventDefault();
+      add(+e.target.dataset.scustom, e.target.value); e.target.value='';
+    }
   });
   host.addEventListener('change', e => {
-    const f = e.target.dataset.f;
-    if(!f || f==='text') return;
+    const f = e.target.dataset.sf;
+    if(!f) return;
     model[+e.target.dataset.i][f] = +e.target.value;
   });
   render();
+  return { refresh: render };
 }
 
 /** 하단 시트 */
@@ -872,7 +956,7 @@ function renderDetail(id){
       ${(p.seasons||[]).length?`<div class="section"><h2>시즌 메모</h2>
         ${p.seasons.map(s=>`<div style="display:flex;gap:9px;padding:5px 0">
           <span class="badge" style="background:var(--bg);color:var(--dim);flex:none">${s.fromMonth}~${s.toMonth}월</span>
-          <span style="font-size:14px">${esc(s.text)}</span></div>`).join('')}
+          <span style="font-size:14px">${seasonItems(s).map(esc).join(' · ')}</span></div>`).join('')}
       </div>`:''}
 
       ${tallyArr.length?`<div class="section"><h2>누적 조과 (출조 ${trips.length}회)</h2>
@@ -964,6 +1048,11 @@ function renderPointEdit(id){
     newPointPrefill = null;
   }
   if(m.mapLink == null) m.mapLink = '';
+  // 예전 버전이나 가져오기로 들어온 데이터에 빠진 필드가 있어도 화면이 죽지 않게 한다
+  if(!Array.isArray(m.catches)) m.catches = [];
+  if(!Array.isArray(m.seasons)) m.seasons = [];
+  if(!Array.isArray(m.images))  m.images  = [];
+  if(!TYPE[m.type]) m.type = 'walking';
   // 예전에 저장된 포인트는 모드 정보가 없으니 내용을 보고 정한다
   if(!m.locMode) m.locMode = m.mapLink ? 'link' : 'coords';
 
@@ -1051,7 +1140,7 @@ function renderPointEdit(id){
       </div>
 
       <div class="field">
-        <label class="label">시즌 메모 (월별 / 기간별)</label>
+        <label class="label">시즌 메모 — 언제 뭐가 나오는지</label>
         <div data-seasons></div>
       </div>
 
@@ -1066,7 +1155,7 @@ function renderPointEdit(id){
   app.querySelectorAll('[data-type]').forEach(b => b.onclick = () => {
     m.type = b.dataset.type;
     app.querySelectorAll('[data-type]').forEach(x => x.setAttribute('aria-pressed', x.dataset.type===m.type));
-    ce.refresh();   // 타입별 프리셋 갱신
+    ce.refresh(); se.refresh();   // 타입별 프리셋 갱신
   });
 
   // 3뎁스 콤보
@@ -1142,7 +1231,7 @@ function renderPointEdit(id){
     catch {
       // 클립보드 읽기 권한이 없으면 입력칸을 띄워 직접 붙여넣게 한다 (팝업 없음)
       input.focus();
-      return toast('입력칸을 길게 눌러 붙여넣어 주세요');
+      return toast('클립보드 접근권한이 없습니다. 입력칸을 길게 눌러 붙여 넣으세요');
     }
     const url = normalizeLoc(txt);
     if(!url) return toast('주소도 좌표도 찾지 못했습니다');
@@ -1178,20 +1267,32 @@ function renderPointEdit(id){
   get('mapLink').addEventListener('input', refreshCoordInfo);
   refreshCoordInfo();
 
-  // 하위 편집기
+  // 하위 편집기 — 하나가 실패해도 저장·뒤로가기는 살아 있어야 한다
   const catchHost = app.querySelector('[data-catches]');
-  const ce = catchEditor(catchHost, m.catches, () => m.type, false);
-  seasonEditor(app.querySelector('[data-seasons]'), m.seasons);
+  let ce = { refresh(){} };
+  try { ce = catchEditor(catchHost, m.catches, () => m.type, false); }
+  catch(err){ console.error(err); catchHost.innerHTML = '<div class="muted">조과물 편집기를 열지 못했습니다.</div>'; }
+  let se = { refresh(){} };
+  try { se = seasonEditor(app.querySelector('[data-seasons]'), m.seasons, () => m.type); }
+  catch(err){ console.error(err); app.querySelector('[data-seasons]').innerHTML = '<div class="muted">시즌 메모 편집기를 열지 못했습니다.</div>'; }
 
   const toEx = app.querySelector('[data-toexisting]');
   if(toEx) toEx.onclick = () => go('#/share');
 
   app.querySelector('[data-back]').onclick = back;
   app.querySelector('[data-save]').onclick = async () => {
-    m.sido      = get('sido').value.trim();
+    // 검증을 먼저 한다. 검증 전에 m 을 건드리면, 저장이 되돌아왔을 때
+    // 화면(편집기가 쥔 배열)과 m 이 어긋나 이후 입력이 조용히 사라진다.
+    const title = get('title').value.trim();
+    const sido  = get('sido').value.trim();
+    const place = get('placeName').value.trim();
+    if(!title) return toast('제목을 입력해 주세요');
+    if(!sido && !place) return toast('장소를 입력해 주세요');
+
+    m.title     = title;
+    m.sido      = sido;
+    m.placeName = place;
     m.sigungu   = get('sigungu').value.trim();
-    m.placeName = get('placeName').value.trim();
-    m.title     = get('title').value.trim();
     m.content   = get('content').value;
     m.mapLink   = get('mapLink').value.trim();
     if(m.locMode === 'coords'){
@@ -1204,10 +1305,10 @@ function renderPointEdit(id){
       m.lat = c ? c.lat : null;
       m.lng = c ? c.lng : null;
     }
-    m.seasons = m.seasons.filter(s => (s.text||'').trim());
-
-    if(!m.title)     return toast('제목을 입력해 주세요');
-    if(!m.sido && !m.placeName) return toast('장소를 입력해 주세요');
+    // 배열 참조를 바꾸지 않고 제자리에서 비운다 (편집기가 같은 배열을 쥐고 있다)
+    for(let i = m.seasons.length - 1; i >= 0; i--){
+      if(!seasonItems(m.seasons[i]).length) m.seasons.splice(i, 1);
+    }
 
     await putPoint(m);
     pendingShare = null;
@@ -1468,7 +1569,9 @@ function renderSettings(){
       <div class="section">
         <h2>정보</h2>
         <div class="setrow"><div class="grow"><div class="t">바다가자</div>
-          <div class="d">v0.1 · 1단계 (로컬 저장)</div></div></div>
+          <div class="d">1단계 (로컬 저장)</div></div><div class="t">${APP_VERSION}</div></div>
+        <button class="setrow" data-refresh><div class="grow"><div class="t">최신 버전 받기</div>
+          <div class="d">고친 내용이 반영되지 않을 때 누르세요</div></div><span class="chev">›</span></button>
       </div>
     </div>
   </div>`;
@@ -1518,6 +1621,22 @@ function renderSettings(){
     if(state.presets[t].includes(v)) return toast('이미 있습니다');
     state.presets[t].push(v); await savePresets(); renderSettings();
   });
+  /* 캐시를 비우고 새로 받아온다. 저장한 기록(IndexedDB)은 건드리지 않는다. */
+  app.querySelector('[data-refresh]').onclick = async () => {
+    toast('최신 버전을 받는 중…');
+    try{
+      if('serviceWorker' in navigator){
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if(window.caches){
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    }catch(e){ console.error(e); }
+    location.reload();
+  };
+
   app.querySelector('[data-resetpreset]').onclick = async () => {
     if(!confirm('프리셋을 기본값으로 되돌릴까요? 직접 추가한 항목은 사라집니다.')) return;
     state.presets = JSON.parse(JSON.stringify(DEFAULT_PRESETS));
