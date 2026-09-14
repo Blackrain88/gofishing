@@ -316,7 +316,7 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
    ============================================================ */
 
 /* ---------- 상수 ---------- */
-const APP_VERSION = 'v12';   // sw.js 의 VERSION 과 함께 올린다
+const APP_VERSION = 'v13';   // sw.js 의 VERSION 과 함께 올린다
 
 const SIDO = ['서울','부산','대구','인천','광주','대전','울산','세종',
               '경기','강원','충북','충남','전북','전남','경북','경남','제주'];
@@ -633,10 +633,12 @@ function visiblePoints(){
    URL/토큰을 넣지 않으면 앱은 완전히 로컬로만 동작한다.
    ============================================================ */
 const SYNC = {
+  get enabled() { return !!state.ui.syncOn; },        // 사용자가 켠 스위치
   get url()     { return (state.ui.syncUrl   || '').trim(); },
   get token()   { return (state.ui.syncToken || '').trim(); },
-  get extras()  { return !!state.ui.syncExtras; },   // 기타·출조 사진까지 올릴지 (기본 꺼짐)
-  get on()      { return !!(this.url && this.token); }
+  get extras()  { return !!state.ui.syncExtras; },    // 기타·출조 사진까지 올릴지 (기본 꺼짐)
+  get ready()   { return !!(this.url && this.token); }, // 주소·토큰이 채워졌는지
+  get on()      { return this.enabled && this.ready; } // 실제로 동작하는 상태
 };
 
 async function api(op, body){
@@ -687,7 +689,8 @@ let syncing = false;
  * @param {Function} onStep 진행 상황을 받을 콜백 (없으면 조용히)
  */
 async function syncNow(onStep){
-  if(!SYNC.on) throw new Error('동기화 주소가 설정되지 않았습니다');
+  if(!SYNC.enabled) throw new Error('동기화가 꺼져 있습니다');
+  if(!SYNC.ready)   throw new Error('주소와 토큰을 입력해 주세요');
   if(syncing) return;
   syncing = true;
   const step = onStep || (()=>{});
@@ -719,7 +722,8 @@ async function syncNow(onStep){
 
 /** 클라우드에서 통째로 내려받아 로컬을 채운다 (새로 설치했을 때) */
 async function restoreFromCloud(onStep){
-  if(!SYNC.on) throw new Error('동기화 주소가 설정되지 않았습니다');
+  if(!SYNC.enabled) throw new Error('동기화가 꺼져 있습니다');
+  if(!SYNC.ready)   throw new Error('주소와 토큰을 입력해 주세요');
   const step = onStep || (()=>{});
   step('기록 받는 중…');
   const j = await api('pull_records', {});
@@ -2041,31 +2045,43 @@ function renderSettings(){
       </div>
 
       <div class="section">
-        <h2>클라우드 동기화 ${SYNC.on?'<span class="badge walking" style="margin-left:2px">켜짐</span>':'<span class="badge" style="background:var(--bg);color:var(--dim)">꺼짐</span>'}</h2>
-        <div class="hint" style="margin:-4px 0 10px">
-          주소를 비워두면 동기화하지 않고 <b>폰에만</b> 저장합니다. 설정 방법은 함께 받은 <b>Code.gs</b> 파일 맨 위에 있습니다.
-        </div>
-        <label class="label">웹 앱 주소</label>
-        <input class="input" data-syncurl placeholder="https://script.google.com/macros/s/..../exec"
-               value="${esc(state.ui.syncUrl||'')}" style="margin-bottom:8px">
-        <label class="label">토큰</label>
-        <input class="input" data-synctoken placeholder="Code.gs 의 TOKEN 과 같은 값"
-               value="${esc(state.ui.syncToken||'')}" style="margin-bottom:10px">
-        <div class="row2">
-          <button class="btn ghost" data-synctest>연결 테스트</button>
-          <button class="btn" data-syncsave>저장</button>
-        </div>
-
-        <button class="setrow" data-extras style="margin-top:6px">
-          <div class="grow"><div class="t">기타 이미지·출조 사진도 올리기</div>
-            <div class="d">포인트 이미지는 항상 올립니다. 나머지는 기본적으로 폰에만 둡니다</div></div>
-          <span class="switch${SYNC.extras?' on':''}"></span>
+        <h2>클라우드 동기화</h2>
+        <button class="setrow" data-synctoggle style="padding-top:2px${SYNC.enabled?'':';border-bottom:0'}">
+          <div class="grow"><div class="t">동기화 사용</div>
+            <div class="d">${SYNC.enabled
+              ? '구글 시트에 기록과 포인트 이미지를 올립니다'
+              : (SYNC.ready
+                  ? '지금은 <b>폰에만</b> 저장합니다. 입력해 둔 주소와 토큰은 그대로 보관됩니다'
+                  : '꺼두면 <b>폰에만</b> 저장하고 아무 데도 보내지 않습니다')}</div></div>
+          <span class="switch${SYNC.enabled?' on':''}"></span>
         </button>
 
-        <button class="setrow" data-syncnow><div class="grow"><div class="t">지금 동기화</div>
-          <div class="d" data-syncstat>확인 중…</div></div><span class="chev">›</span></button>
-        <button class="setrow" data-restore><div class="grow"><div class="t">클라우드에서 복원</div>
-          <div class="d">앱을 새로 설치했을 때 전체를 내려받습니다</div></div><span class="chev">›</span></button>
+        <div${SYNC.enabled?'':' hidden'} data-syncbody>
+          <div class="hint" style="margin:12px 0 10px">
+            설정 방법은 함께 받은 <b>Code.gs</b> 파일 맨 위에 적어 두었습니다.
+          </div>
+          <label class="label">웹 앱 주소</label>
+          <input class="input" data-syncurl placeholder="https://script.google.com/macros/s/..../exec"
+                 value="${esc(state.ui.syncUrl||'')}" style="margin-bottom:8px">
+          <label class="label">토큰</label>
+          <input class="input" data-synctoken placeholder="Code.gs 의 TOKEN 과 같은 값"
+                 value="${esc(state.ui.syncToken||'')}" style="margin-bottom:10px">
+          <div class="row2">
+            <button class="btn ghost" data-synctest>연결 테스트</button>
+            <button class="btn" data-syncsave>저장</button>
+          </div>
+
+          <button class="setrow" data-extras style="margin-top:6px">
+            <div class="grow"><div class="t">기타 이미지·출조 사진도 올리기</div>
+              <div class="d">포인트 이미지는 항상 올립니다. 나머지는 기본적으로 폰에만 둡니다</div></div>
+            <span class="switch${SYNC.extras?' on':''}"></span>
+          </button>
+
+          <button class="setrow" data-syncnow><div class="grow"><div class="t">지금 동기화</div>
+            <div class="d" data-syncstat>확인 중…</div></div><span class="chev">›</span></button>
+          <button class="setrow" data-restore><div class="grow"><div class="t">클라우드에서 복원</div>
+            <div class="d">앱을 새로 설치했을 때 전체를 내려받습니다</div></div><span class="chev">›</span></button>
+        </div>
       </div>
 
       <div class="section">
@@ -2117,10 +2133,19 @@ function renderSettings(){
   })();
 
   // ---- 동기화 ----
+  app.querySelector('[data-synctoggle]').onclick = async () => {
+    state.ui.syncOn = !state.ui.syncOn;
+    await saveUI();
+    if(state.ui.syncOn && !SYNC.ready) toast('주소와 토큰을 입력한 뒤 저장해 주세요');
+    else if(!state.ui.syncOn) toast('동기화를 껐습니다 — 이제 폰에만 저장합니다');
+    renderSettings();
+    if(state.ui.syncOn && !SYNC.ready) $('[data-syncurl]')?.focus();
+  };
+
   const statEl = app.querySelector('[data-syncstat]');
   async function refreshSyncStat(){
     if(!statEl) return;
-    if(!SYNC.on){ statEl.textContent = '주소와 토큰을 넣으면 켜집니다'; return; }
+    if(!SYNC.ready){ statEl.textContent = '주소와 토큰을 입력해 주세요'; return; }
     try{
       const c = await unsyncedCount();
       const when = state.ui.syncedAt ? new Date(state.ui.syncedAt).toLocaleString('ko-KR') : '아직 없음';
@@ -2131,14 +2156,17 @@ function renderSettings(){
   }
   refreshSyncStat();
 
-  app.querySelector('[data-syncsave]').onclick = async () => {
+  const bodyEl = app.querySelector('[data-syncbody]');
+  if(!bodyEl) { /* 꺼진 상태 — 아래 핸들러들은 붙일 대상이 없다 */ }
+
+  app.querySelector('[data-syncsave]')?.addEventListener('click', async () => {
     state.ui.syncUrl   = app.querySelector('[data-syncurl]').value.trim();
     state.ui.syncToken = app.querySelector('[data-synctoken]').value.trim();
     await saveUI();
-    toast(SYNC.on ? '동기화를 켰습니다' : '동기화를 껐습니다');
+    toast(SYNC.ready ? '저장했습니다' : '주소와 토큰을 모두 넣어 주세요');
     renderSettings();
-  };
-  app.querySelector('[data-synctest]').onclick = async () => {
+  });
+  app.querySelector('[data-synctest]')?.addEventListener('click', async () => {
     const url = app.querySelector('[data-syncurl]').value.trim();
     const tok = app.querySelector('[data-synctoken]').value.trim();
     if(!url || !tok) return toast('주소와 토큰을 모두 넣어 주세요');
@@ -2151,28 +2179,28 @@ function renderSettings(){
       [state.ui.syncUrl, state.ui.syncToken] = keep;
       toast('연결 실패: ' + e.message);
     }
-  };
-  app.querySelector('[data-extras]').onclick = async () => {
+  });
+  app.querySelector('[data-extras]')?.addEventListener('click', async () => {
     state.ui.syncExtras = !state.ui.syncExtras;
     await saveUI(); renderSettings();
-  };
-  app.querySelector('[data-syncnow]').onclick = async () => {
-    if(!SYNC.on) return toast('먼저 주소와 토큰을 저장해 주세요');
+  });
+  app.querySelector('[data-syncnow]')?.addEventListener('click', async () => {
+    if(!SYNC.ready) return toast('먼저 주소와 토큰을 저장해 주세요');
     try{
       const r = await syncNow(msg => { if(statEl) statEl.textContent = msg; });
       toast(r ? `올렸습니다 — 기록 ${r.records}건 · 사진 ${r.images}장` : '이미 동기화 중입니다');
     }catch(e){ toast('동기화 실패: ' + e.message); }
     refreshSyncStat();
-  };
-  app.querySelector('[data-restore]').onclick = async () => {
-    if(!SYNC.on) return toast('먼저 주소와 토큰을 저장해 주세요');
+  });
+  app.querySelector('[data-restore]')?.addEventListener('click', async () => {
+    if(!SYNC.ready) return toast('먼저 주소와 토큰을 저장해 주세요');
     if(!confirm('클라우드의 기록을 내려받아 합칩니다. 계속할까요?')) return;
     try{
       const r = await restoreFromCloud(msg => { if(statEl) statEl.textContent = msg; });
       toast(`복원 완료 — 포인트 ${r.points} · 출조 ${r.trips} · 사진 ${r.images}`);
       renderSettings();
     }catch(e){ toast('복원 실패: ' + e.message); refreshSyncStat(); }
-  };
+  });
 
   app.querySelector('[data-export]').onclick = () => {
     const data = { app:'badagaja', version:1, exportedAt:new Date().toISOString(),
