@@ -316,7 +316,7 @@ textarea.input{resize:vertical;min-height:88px;line-height:1.55}
    ============================================================ */
 
 /* ---------- 상수 ---------- */
-const APP_VERSION = 'v14';   // sw.js 의 VERSION 과 함께 올린다
+const APP_VERSION = 'v15';   // sw.js 의 VERSION 과 함께 올린다
 
 const SIDO = ['서울','부산','대구','인천','광주','대전','울산','세종',
               '경기','강원','충북','충남','전북','전남','경북','경남','제주'];
@@ -327,11 +327,17 @@ const DEFAULT_PRESETS = {
 };
 
 const TYPE = {
-  walking : { label:'워킹낚시', icon:'🎣' },
+  walking : { label:'낚시질', icon:'🎣' },
   haerujil: { label:'해루질',   icon:'🔦' }
 };
 
 const MONTHS = Array.from({length:12},(_,i)=>i+1);
+
+/* ---------- APK(Capacitor) 위에서 돌 때의 다리 ----------
+   브라우저(PWA)에서는 window.Capacitor 가 없어 전부 웹 방식으로 떨어진다. */
+const CAP        = () => window.Capacitor;
+const isNative   = () => !!(CAP() && CAP().isNativePlatform && CAP().isNativePlatform());
+const capPlugin  = name => (CAP() && CAP().Plugins) ? CAP().Plugins[name] : null;
 
 /* ---------- 유틸 ---------- */
 const $ = s => document.querySelector(s);
@@ -749,6 +755,23 @@ async function buildBackup(onStep){
 async function shareBackup(onStep){
   const r = await buildBackup(onStep);
   const name = `바다가자-백업-${todayStr()}.zip`;
+  // APK: WebView 는 navigator.share(files) 를 못 쓴다. 파일로 쓴 뒤 네이티브 공유로 넘긴다.
+  const Filesystem = capPlugin('Filesystem'), Share = capPlugin('Share');
+  if(Filesystem && Share){
+    step('파일로 저장하는 중…');
+    const b64 = await blobToB64(r.blob);
+    await Filesystem.writeFile({ path:name, data:b64, directory:'CACHE' });
+    const { uri } = await Filesystem.getUri({ path:name, directory:'CACHE' });
+    try{
+      await Share.share({ title:'바다가자 백업', files:[uri] });
+    }catch(e){
+      if(!(e && /cancel/i.test(e.message||''))) throw e;
+      return null;
+    }
+    state.ui.backupAt = now(); saveUI();
+    return r;
+  }
+
   const file = new File([r.blob], name, { type:'application/zip' });
   let shared = false;
   try{
@@ -968,6 +991,35 @@ function captureShare(){
   history.replaceState(null, '', location.pathname);
   return !!(url || pendingShare.title);
 }
+
+/** APK 에서 "공유 → 바다가자" 로 들어온 내용을 가져온다 */
+async function captureShareNative(){
+  const st = capPlugin('ShareTarget');
+  if(!st) return false;
+  try{
+    const r = await st.consume();
+    const txt = ((r.title || '') + ' ' + (r.text || '')).trim();
+    if(!txt) return false;
+    const url = (txt.match(/https?:\/\/\S+/) || [''])[0];
+    pendingShare = { url, title: (r.title || txt.replace(/https?:\/\/\S+/g,'')).trim() };
+    return !!(url || pendingShare.title);
+  }catch(e){ console.warn(e); return false; }
+}
+
+/** 받은 공유를 새 포인트 작성으로 연결 */
+function startShareFlow(){
+  if(!pendingShare) return;
+  const c = parseCoordsFromUrl(pendingShare.url);
+  newPointPrefill = { mapLink: pendingShare.url, title: pendingShare.title || '',
+                      locMode:'link', fromShare: true };
+  if(c){ newPointPrefill.lat = c.lat; newPointPrefill.lng = c.lng; }
+  go('#/p/new');
+}
+
+/* 앱이 이미 떠 있는 상태로 공유가 들어오면 네이티브가 이걸 부른다 */
+window.__badagajaShareArrived = async () => {
+  if(await captureShareNative()) startShareFlow();
+};
 
 function go(hash){ location.hash = hash; }
 /** 히스토리 항목을 남기지 않고 이동 (예: 새 포인트 저장 후 입력 폼을 대체) */
@@ -1379,7 +1431,7 @@ function renderMain(){
   const {tab,view,q,sort} = state.ui;
   const items = visiblePoints();
   const imgCount = allImages().length;
-  const tabs = [['all','모두보기'],['walking','워킹낚시'],['haerujil','해루질']];
+  const tabs = [['all','모두보기'],['walking','낚시질'],['haerujil','해루질']];
 
   $('#app').innerHTML = `
   <div class="screen">
@@ -1632,6 +1684,12 @@ function locationUrlOf(p){
 }
 function openUrl(u){
   if(!u) return toast('저장된 위치가 없습니다');
+  const st = capPlugin('ShareTarget');
+  if(st){
+    // APK 안의 WebView 는 geo: 같은 주소를 스스로 못 연다. 시스템에 넘긴다.
+    st.open({ url:u }).catch(e => toast(e?.message || '열 수 있는 앱이 없습니다'));
+    return;
+  }
   location.href = u;
 }
 
@@ -1686,7 +1744,7 @@ function renderPointEdit(id){
       <div class="field">
         <label class="label">종류 <span class="req">*</span></label>
         <div class="seg">
-          <button type="button" data-type="walking"  aria-pressed="${m.type==='walking'}">🎣 워킹낚시</button>
+          <button type="button" data-type="walking"  aria-pressed="${m.type==='walking'}">🎣 낚시질</button>
           <button type="button" data-type="haerujil" aria-pressed="${m.type==='haerujil'}">🔦 해루질</button>
         </div>
       </div>
@@ -2531,13 +2589,11 @@ function renderSettings(){
   window.addEventListener('online', scheduleSync);
 
   // 지도앱에서 "공유 → 바다가자"로 들어왔다면 곧바로 새 포인트 작성으로 들어간다
-  if(captureShare()){
-    const c = parseCoordsFromUrl(pendingShare.url);
-    newPointPrefill = { mapLink: pendingShare.url, title: pendingShare.title || '', locMode:'link', fromShare: true };
-    if(c){ newPointPrefill.lat = c.lat; newPointPrefill.lng = c.lng; }
-    go('#/p/new');
-  } else route();
-  if('serviceWorker' in navigator){
+  // (PWA 는 주소의 query 로, APK 는 네이티브 플러그인으로 들어온다)
+  if(captureShare() || await captureShareNative()) startShareFlow();
+  else route();
+  // APK 안에서는 파일이 이미 기기에 있으므로 서비스워커가 필요 없다
+  if('serviceWorker' in navigator && !isNative()){
     navigator.serviceWorker.register('sw.js').catch(()=>{});
   }
 })();
